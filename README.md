@@ -42,6 +42,24 @@ AVASTHA (आवस्था - Sanskrit for "state" or "condition") is a sophisti
 pip install -r requirements.txt
 ```
 
+### Running the Dashboard
+
+```bash
+streamlit run app.py
+```
+
+### Analysis Modes
+
+**Individual Scrip Mode** - Deep-dive analysis of any single symbol:
+- Enter any NSE symbol (e.g., `RELIANCE.NS`) or Yahoo Finance ticker
+- Quick-select buttons for popular indices and stocks
+- Full regime breakdown with price chart, oscillator, and probabilities
+
+**Index Universe Mode** - Screen entire universes for regime classification:
+- **ETF Universe**: 30 curated ETFs from Pragyam (sectors, indices, commodities)
+- **F&O Stocks**: NSE Futures & Options stock universe (~200 stocks)
+- **Index Constituents**: NIFTY 50, NIFTY 500, NIFTY BANK, and 13 other NSE indices
+
 ### Basic Usage (Python)
 
 ```python
@@ -256,3 +274,34 @@ Contributions welcome! Please read the contributing guidelines first.
 <p align="center">
   <b>AVASTHA</b> - Understanding Market States with Precision
 </p>
+
+## 🏦 ETF Universe (Pragyam Symbols)
+
+The ETF Universe contains 30 curated ETFs from the Pragyam system:
+
+| Symbol | Category | Symbol | Category |
+|--------|----------|--------|----------|
+| NIFTYIETF.NS | NIFTY 50 | MON100.NS | NIFTY 100 |
+| MONIFTY500.NS | NIFTY 500 | MASPTOP50.NS | Top 50 |
+| MIDCAPIETF.NS | Midcap | MOSMALL250.NS | Smallcap 250 |
+| FINIETF.NS | Financials | PVTBANIETF.NS | Private Banks |
+| PSUBNKIETF.NS | PSU Banks | ECAPINSURE.NS | Insurance |
+| ITIETF.NS | IT | AUTOIETF.NS | Auto |
+| FMCGIETF.NS | FMCG | HEALTHIETF.NS | Healthcare |
+| CONSUMIETF.NS | Consumption | INFRAIETF.NS | Infrastructure |
+| METALIETF.NS | Metal | OILIETF.NS | Oil & Gas |
+| CHEMICAL.NS | Chemicals | MODEFENCE.NS | Defence |
+| MOREALTY.NS | Realty | CPSETF.NS | CPSE |
+| MAKEINDIA.NS | Make in India | EVINDIA.NS | EV India |
+| MNC.NS | MNC | TNIDETF.NS | Tamil Nadu Infra |
+| GOLDIETF.NS | Gold | SILVERIETF.NS | Silver |
+| COMMOIETF.NS | Commodities | GROWWPOWER.NS | Power & Energy |
+
+## 📈 NSE Index Options
+
+Available indices for constituent screening:
+
+- NIFTY 50, NIFTY NEXT 50, NIFTY 100, NIFTY 200, NIFTY 500
+- NIFTY MIDCAP 50, NIFTY MIDCAP 100, NIFTY SMLCAP 100
+- NIFTY BANK, NIFTY AUTO, NIFTY FIN SERVICE
+- NIFTY FMCG, NIFTY IT, NIFTY MEDIA, NIFTY METAL, NIFTY PHARMA
