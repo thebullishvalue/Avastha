@@ -378,11 +378,10 @@ def get_sector_analysis(df: pd.DataFrame) -> pd.DataFrame:
 # CHART FUNCTIONS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-CHART_CONFIG = dict(
+CHART_COLORS = dict(
     paper_bgcolor='#111111',
     plot_bgcolor='#111111',
     font=dict(family="Inter", color='#f5f5f5', size=11),
-    margin=dict(l=50, r=30, t=30, b=50),
 )
 
 def create_regime_donut(df: pd.DataFrame) -> go.Figure:
@@ -396,7 +395,7 @@ def create_regime_donut(df: pd.DataFrame) -> go.Figure:
         hovertemplate='<b>%{label}</b><br>Count: %{value}<br>%{percent}<extra></extra>'
     )])
     
-    fig.update_layout(**CHART_CONFIG, height=320, showlegend=False,
+    fig.update_layout(**CHART_COLORS, height=320, margin=dict(l=20, r=20, t=30, b=20), showlegend=False,
         annotations=[dict(text=f'<b>{len(df)}</b><br><span style="font-size:10px">Symbols</span>', 
                          x=0.5, y=0.5, font_size=18, font_color='#f5f5f5', showarrow=False)])
     return fig
@@ -412,7 +411,7 @@ def create_oscillator_histogram(df: pd.DataFrame) -> go.Figure:
     fig.add_vline(x=df['Oscillator'].mean(), line_dash="dash", line_color="#FFC300", annotation_text=f"μ={df['Oscillator'].mean():.1f}", annotation_font_color="#FFC300")
     fig.add_vline(x=0, line_dash="dot", line_color="#6b7280")
     
-    fig.update_layout(**CHART_CONFIG, height=320, barmode='overlay',
+    fig.update_layout(**CHART_COLORS, height=320, margin=dict(l=50, r=30, t=30, b=50), barmode='overlay',
         xaxis=dict(title="Oscillator", gridcolor='#262626', range=[-100, 100], zeroline=False),
         yaxis=dict(title="Count", gridcolor='#262626', zeroline=False),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font_size=10))
@@ -431,7 +430,7 @@ def create_risk_gauge(risk: float) -> go.Figure:
             'steps': [{'range': [0, 35], 'color': '#10b981'}, {'range': [35, 65], 'color': '#f59e0b'}, {'range': [65, 100], 'color': '#ef4444'}],
         }
     ))
-    fig.update_layout(**CHART_CONFIG, height=220, margin=dict(l=30, r=30, t=40, b=20))
+    fig.update_layout(**CHART_COLORS, height=220, margin=dict(l=30, r=30, t=40, b=20))
     return fig
 
 def create_breadth_bars(metrics: dict) -> go.Figure:
@@ -441,7 +440,7 @@ def create_breadth_bars(metrics: dict) -> go.Figure:
     
     fig = go.Figure(go.Bar(x=cats, y=vals, marker_color=colors, text=[f"{v:+.0f}%" for v in vals], textposition='outside', textfont=dict(color='#f5f5f5', size=11)))
     fig.add_hline(y=0, line_dash="dash", line_color="#6b7280")
-    fig.update_layout(**CHART_CONFIG, height=220, xaxis=dict(gridcolor='#262626'), yaxis=dict(title="Breadth %", gridcolor='#262626', range=[-100, 100], zeroline=False), showlegend=False)
+    fig.update_layout(**CHART_COLORS, height=220, margin=dict(l=50, r=30, t=30, b=50), xaxis=dict(gridcolor='#262626'), yaxis=dict(title="Breadth %", gridcolor='#262626', range=[-100, 100], zeroline=False), showlegend=False)
     return fig
 
 def create_scatter_plot(df: pd.DataFrame) -> go.Figure:
@@ -460,7 +459,7 @@ def create_scatter_plot(df: pd.DataFrame) -> go.Figure:
     fig.add_hline(y=40, line_dash="dot", line_color="#ef4444", annotation_text="Low", annotation_font_size=10)
     fig.add_vline(x=0, line_dash="dot", line_color="#6b7280")
     
-    fig.update_layout(**CHART_CONFIG, height=400, xaxis=dict(title="Oscillator", gridcolor='#262626', range=[-100, 100], zeroline=False),
+    fig.update_layout(**CHART_COLORS, height=400, margin=dict(l=50, r=30, t=30, b=50), xaxis=dict(title="Oscillator", gridcolor='#262626', range=[-100, 100], zeroline=False),
         yaxis=dict(title="Exposure %", gridcolor='#262626', range=[0, 150], zeroline=False),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5, font_size=9))
     return fig
@@ -477,7 +476,7 @@ def create_sector_heatmap(df: pd.DataFrame) -> go.Figure:
         colorscale=[[0, '#111111'], [0.5, '#FFC300'], [1, '#FFC300']],
         showscale=False, text=pivot.values, texttemplate="%{text}", textfont=dict(color='#f5f5f5', size=11)
     ))
-    fig.update_layout(**CHART_CONFIG, height=350, xaxis=dict(tickangle=45, tickfont=dict(size=9)), yaxis=dict(tickfont=dict(size=10)))
+    fig.update_layout(**CHART_COLORS, height=350, margin=dict(l=100, r=30, t=30, b=80), xaxis=dict(tickangle=45, tickfont=dict(size=9)), yaxis=dict(tickfont=dict(size=10)))
     return fig
 
 def create_price_chart(prices: pd.Series, signal: RegimeSignal, symbol: str) -> go.Figure:
@@ -494,7 +493,7 @@ def create_price_chart(prices: pd.Series, signal: RegimeSignal, symbol: str) -> 
     fig.add_trace(go.Bar(x=[prices.index[-1]], y=[signal.composite_oscillator], name='Osc', marker_color=osc_color, showlegend=False), row=2, col=1)
     fig.add_hline(y=0, line_dash="dash", line_color="#6b7280", row=2, col=1)
     
-    fig.update_layout(**CHART_CONFIG, height=450, showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font_size=10), hovermode='x unified')
+    fig.update_layout(**CHART_COLORS, height=450, margin=dict(l=50, r=30, t=40, b=40), showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font_size=10), hovermode='x unified')
     fig.update_xaxes(gridcolor='#262626', zeroline=False)
     fig.update_yaxes(gridcolor='#262626', zeroline=False, title_text="Price", row=1, col=1)
     fig.update_yaxes(gridcolor='#262626', zeroline=False, title_text="Osc", range=[-100, 100], row=2, col=1)
