@@ -1,851 +1,950 @@
 """
-AVASTHA (आवस्था) - Market Regime Detection System
-==================================================
-Institutional-grade multi-model regime detection dashboard.
-Part of the Quantitative Analysis Suite alongside Pragyam and UMA.
+AVASTHA - Market Regime Detection System
+A Pragyam Product Family Member
 
-Run: streamlit run app.py
+Institutional-grade market regime detection using multi-factor analysis
+across momentum, trend, breadth, volatility, and statistical extremes.
+
+Version: 1.0.0
+Author: Hemrek Capital
 """
 
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.graph_objects as go
 import plotly.express as px
+import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
-import warnings
+import datetime as dt
+import logging
 import time
-import requests
-from io import StringIO
 
-warnings.filterwarnings('ignore')
-
-from avastha_engine import (
-    MarketRegimeEngine, RegimeType, RegimeConfig, RegimeSignal,
-    VolatilityRegime, MomentumRegime, TrendRegime,
-    detect_regime, get_regime_color, get_regime_description
+# Local imports
+from regime_detector import MarketRegimeDetector, RegimeType, RegimeResult
+from data_engine import (
+    MarketDataEngine, 
+    get_universe_symbols,
+    UNIVERSE_OPTIONS, 
+    INDEX_LIST, 
+    ETF_UNIVERSE,
+    get_display_name
 )
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
 # CONFIGURATION
-# ═══════════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
 
-VERSION = "v2.0.0"
+VERSION = "v1.0.0"
+APP_TITLE = "AVASTHA"
+APP_SUBTITLE = "Market Regime Detection System"
 
-ETF_UNIVERSE_CATEGORIZED = {
-    "Broad Market": {"NIFTYIETF.NS": "NIFTY 50", "MON100.NS": "NIFTY 100", "MONIFTY500.NS": "NIFTY 500", "MASPTOP50.NS": "Top 50"},
-    "Market Cap": {"MIDCAPIETF.NS": "Midcap", "MOSMALL250.NS": "Smallcap 250"},
-    "Banking & Finance": {"FINIETF.NS": "Financials", "PVTBANIETF.NS": "Private Banks", "PSUBNKIETF.NS": "PSU Banks", "ECAPINSURE.NS": "Insurance"},
-    "Technology": {"ITIETF.NS": "IT", "MNC.NS": "MNC"},
-    "Consumer": {"FMCGIETF.NS": "FMCG", "CONSUMIETF.NS": "Consumption", "AUTOIETF.NS": "Auto", "EVINDIA.NS": "EV India"},
-    "Healthcare": {"HEALTHIETF.NS": "Healthcare"},
-    "Industrial": {"INFRAIETF.NS": "Infrastructure", "CPSETF.NS": "CPSE", "MAKEINDIA.NS": "Make in India", "MODEFENCE.NS": "Defence", "MOREALTY.NS": "Realty", "TNIDETF.NS": "TN Infra", "GROWWPOWER.NS": "Power"},
-    "Materials": {"METALIETF.NS": "Metal", "OILIETF.NS": "Oil & Gas", "CHEMICAL.NS": "Chemicals"},
-    "Commodities": {"GOLDIETF.NS": "Gold", "SILVERIETF.NS": "Silver", "COMMOIETF.NS": "Commodities"},
-}
+st.set_page_config(
+    page_title=f"{APP_TITLE} | {APP_SUBTITLE}",
+    page_icon="◈",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-ETF_UNIVERSE = []
-ETF_DISPLAY_NAMES = {}
-ETF_CATEGORIES = {}
-for category, symbols in ETF_UNIVERSE_CATEGORIZED.items():
-    for symbol, name in symbols.items():
-        ETF_UNIVERSE.append(symbol)
-        ETF_DISPLAY_NAMES[symbol] = name
-        ETF_CATEGORIES[symbol] = category
-
-INDEX_LIST = ["NIFTY 50", "NIFTY NEXT 50", "NIFTY 100", "NIFTY 200", "NIFTY 500", "NIFTY MIDCAP 50", "NIFTY MIDCAP 100", "NIFTY SMLCAP 100", "NIFTY BANK", "NIFTY AUTO", "NIFTY FIN SERVICE", "NIFTY FMCG", "NIFTY IT", "NIFTY MEDIA", "NIFTY METAL", "NIFTY PHARMA"]
-BASE_URL = "https://archives.nseindia.com/content/indices/"
-INDEX_URLS = {idx: f"{BASE_URL}ind_{idx.lower().replace(' ', '')}list.csv" for idx in INDEX_LIST}
-INDEX_URLS["NIFTY 50"] = f"{BASE_URL}ind_nifty50list.csv"
-INDEX_URLS["NIFTY NEXT 50"] = f"{BASE_URL}ind_niftynext50list.csv"
-INDEX_URLS["NIFTY SMLCAP 100"] = f"{BASE_URL}ind_niftysmallcap100list.csv"
-INDEX_URLS["NIFTY FIN SERVICE"] = f"{BASE_URL}ind_niftyfinancelist.csv"
-
-FNO_URL = "https://archives.nseindia.com/content/fo/fo_mktlots.csv"
-UNIVERSE_OPTIONS = ["ETF Universe", "F&O Stocks", "Index Constituents"]
-
-REGIME_COLORS = {
-    RegimeType.CRISIS: "#ef4444", RegimeType.BEAR_ACCELERATION: "#f97316", RegimeType.BEAR_DECELERATION: "#fb923c",
-    RegimeType.ACCUMULATION: "#06b6d4", RegimeType.EARLY_BULL: "#10b981", RegimeType.BULL_TREND: "#22c55e",
-    RegimeType.BULL_EUPHORIA: "#f59e0b", RegimeType.DISTRIBUTION: "#a855f7", RegimeType.CHOP: "#6b7280", RegimeType.TRANSITION: "#FFC300",
-}
-
-REGIME_EMOJIS = {
-    RegimeType.CRISIS: "🔴", RegimeType.BEAR_ACCELERATION: "📉", RegimeType.BEAR_DECELERATION: "🔻",
-    RegimeType.ACCUMULATION: "📦", RegimeType.EARLY_BULL: "🌱", RegimeType.BULL_TREND: "🐂",
-    RegimeType.BULL_EUPHORIA: "🎪", RegimeType.DISTRIBUTION: "📤", RegimeType.CHOP: "🌀", RegimeType.TRANSITION: "🔄",
-}
-
-REGIME_RISK_WEIGHTS = {"CRISIS": 1.0, "BEAR_ACCELERATION": 0.85, "BEAR_DECELERATION": 0.6, "DISTRIBUTION": 0.7, "CHOP": 0.5, "TRANSITION": 0.5, "ACCUMULATION": 0.3, "EARLY_BULL": 0.2, "BULL_TREND": 0.15, "BULL_EUPHORIA": 0.4}
-BULLISH_REGIMES = ['EARLY_BULL', 'BULL_TREND', 'BULL_EUPHORIA', 'ACCUMULATION']
-BEARISH_REGIMES = ['CRISIS', 'BEAR_ACCELERATION', 'BEAR_DECELERATION', 'DISTRIBUTION']
-NEUTRAL_REGIMES = ['CHOP', 'TRANSITION']
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# PAGE CONFIG AND STYLING
-# ═══════════════════════════════════════════════════════════════════════════════
-
-st.set_page_config(page_title="AVASTHA | Market Regime Detection", page_icon="🔮", layout="wide", initial_sidebar_state="expanded")
+# ══════════════════════════════════════════════════════════════════════════════
+# PRAGYAM DESIGN SYSTEM CSS
+# ══════════════════════════════════════════════════════════════════════════════
 
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-
-:root {
-    --primary: #FFC300;
-    --primary-rgb: 255, 195, 0;
-    --bg-dark: #0a0a0a;
-    --bg-card: #111111;
-    --bg-elevated: #1a1a1a;
-    --bg-hover: #222222;
-    --text-primary: #f5f5f5;
-    --text-muted: #737373;
-    --border: #262626;
-    --border-light: #333333;
-    --green: #10b981;
-    --red: #ef4444;
-    --amber: #f59e0b;
-    --cyan: #06b6d4;
-}
-
-*, *::before, *::after { box-sizing: border-box; }
-html, body, [class*="css"] { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
-
-.main { background-color: var(--bg-dark); }
-[data-testid="stSidebar"] { background-color: var(--bg-card); border-right: 1px solid var(--border); }
-.stApp > header { background-color: transparent; }
-.block-container { padding: 1.5rem 2rem 3rem 2rem; max-width: 1600px; }
-
-/* Header */
-.app-header {
-    background: linear-gradient(135deg, var(--bg-card) 0%, var(--bg-elevated) 100%);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 1.5rem 2rem;
-    margin-bottom: 1.5rem;
-    position: relative;
-    overflow: hidden;
-}
-.app-header::before {
-    content: '';
-    position: absolute;
-    top: 0; left: 0; right: 0; height: 3px;
-    background: linear-gradient(90deg, var(--primary), transparent);
-}
-.app-header h1 { margin: 0; font-size: 1.75rem; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 0.75rem; }
-.app-header p { margin: 0.5rem 0 0 0; font-size: 0.875rem; color: var(--text-muted); }
-
-/* Metric Cards */
-.metric-grid { display: grid; gap: 1rem; margin-bottom: 1.5rem; }
-.metric-grid-4 { grid-template-columns: repeat(4, 1fr); }
-.metric-grid-5 { grid-template-columns: repeat(5, 1fr); }
-.metric-grid-6 { grid-template-columns: repeat(6, 1fr); }
-
-.metric-card {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 1.25rem;
-    min-height: 120px;
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    transition: all 0.2s ease;
-    position: relative;
-    overflow: hidden;
-}
-.metric-card:hover { border-color: var(--border-light); transform: translateY(-1px); }
-.metric-card.accent { border-top: 3px solid var(--primary); padding-top: calc(1.25rem - 3px); }
-.metric-card .label { font-size: 0.7rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.5rem; }
-.metric-card .value { font-size: 1.75rem; font-weight: 700; color: var(--text-primary); line-height: 1.2; }
-.metric-card .subtext { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem; }
-.metric-card .value.green { color: var(--green); }
-.metric-card .value.red { color: var(--red); }
-.metric-card .value.amber { color: var(--amber); }
-.metric-card .value.cyan { color: var(--cyan); }
-.metric-card .value.primary { color: var(--primary); }
-
-/* Section Title */
-.section-title { font-size: 0.875rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin: 1.5rem 0 1rem 0; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); }
-
-/* Charts Container */
-.chart-container { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 1rem; margin-bottom: 1rem; }
-.chart-title { font-size: 0.8rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 1rem; }
-
-/* Insights */
-.insight-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin: 1rem 0; }
-.insight-card {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-left: 3px solid var(--primary);
-    border-radius: 8px;
-    padding: 1rem 1.25rem;
-}
-.insight-card .title { font-size: 0.8rem; font-weight: 600; color: var(--primary); margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem; }
-.insight-card .text { font-size: 0.8rem; color: var(--text-muted); line-height: 1.5; }
-
-/* Info Box */
-.info-box { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem; margin: 1rem 0; }
-.info-box h4 { color: var(--primary); margin: 0 0 0.5rem 0; font-size: 0.9rem; font-weight: 600; }
-.info-box p { color: var(--text-muted); margin: 0; font-size: 0.85rem; line-height: 1.5; }
-
-/* Sidebar */
-.sidebar-brand { text-align: center; padding: 1rem 0 0.5rem 0; }
-.sidebar-brand h2 { color: var(--primary); margin: 0; font-size: 1.5rem; font-weight: 700; }
-.sidebar-brand p { color: var(--text-muted); margin: 0.25rem 0 0 0; font-size: 0.75rem; }
-.sidebar-divider { height: 1px; background: var(--border); margin: 1rem 0; }
-.sidebar-label { font-size: 0.7rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin: 1rem 0 0.5rem 0; }
-
-/* Buttons */
-.stButton > button {
-    background: transparent !important;
-    border: 2px solid var(--primary) !important;
-    color: var(--primary) !important;
-    font-weight: 600 !important;
-    border-radius: 8px !important;
-    padding: 0.625rem 1.5rem !important;
-    font-size: 0.8rem !important;
-    text-transform: uppercase !important;
-    letter-spacing: 0.5px !important;
-    transition: all 0.2s ease !important;
-}
-.stButton > button:hover { background: var(--primary) !important; color: #000 !important; }
-
-/* Tabs */
-.stTabs [data-baseweb="tab-list"] { gap: 0; background: var(--bg-card); border-radius: 8px; padding: 4px; border: 1px solid var(--border); }
-.stTabs [data-baseweb="tab"] { 
-    color: var(--text-muted); 
-    background: transparent; 
-    border-radius: 6px; 
-    padding: 0.5rem 1rem; 
-    font-size: 0.8rem; 
-    font-weight: 500;
-    border: none;
-}
-.stTabs [aria-selected="true"] { color: var(--primary); background: var(--bg-elevated); }
-
-/* Dataframe & Charts */
-.stDataFrame { border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }
-.stPlotlyChart { border-radius: 8px; overflow: hidden; }
-
-/* Tables */
-.stMarkdown table { width: 100%; border-collapse: collapse; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; font-size: 0.85rem; }
-.stMarkdown table th { background: var(--bg-elevated); color: var(--text-muted); font-weight: 600; text-transform: uppercase; font-size: 0.7rem; letter-spacing: 0.5px; padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid var(--border); }
-.stMarkdown table td { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); color: var(--text-primary); }
-.stMarkdown table tr:last-child td { border-bottom: none; }
-.stMarkdown table tr:hover { background: var(--bg-hover); }
-
-/* Selectbox & inputs */
-.stSelectbox > div > div { background: var(--bg-card); border-color: var(--border); }
-.stTextInput > div > div > input { background: var(--bg-card); border-color: var(--border); color: var(--text-primary); }
-.stMultiSelect > div { background: var(--bg-card); }
-
-/* Slider */
-.stSlider > div > div { background: var(--border); }
-.stSlider > div > div > div { background: var(--primary); }
-
-/* Hide streamlit branding */
-#MainMenu { visibility: hidden; }
-footer { visibility: hidden; }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+    
+    :root {
+        --primary-color: #FFC300;
+        --primary-rgb: 255, 195, 0;
+        --background-color: #0F0F0F;
+        --secondary-background-color: #1A1A1A;
+        --bg-card: #1A1A1A;
+        --bg-elevated: #2A2A2A;
+        --text-primary: #EAEAEA;
+        --text-secondary: #EAEAEA;
+        --text-muted: #888888;
+        --border-color: #2A2A2A;
+        --border-light: #3A3A3A;
+        --success-green: #10b981;
+        --danger-red: #ef4444;
+        --warning-amber: #f59e0b;
+        --info-cyan: #06b6d4;
+        --neutral: #888888;
+    }
+    
+    * { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
+    .main, [data-testid="stSidebar"] { background-color: var(--background-color); color: var(--text-primary); }
+    .stApp > header { background-color: transparent; }
+    #MainMenu {visibility: hidden;} footer {visibility: hidden;}
+    .block-container { padding-top: 3.5rem; max-width: 90%; padding-left: 2rem; padding-right: 2rem; }
+    
+    /* Sidebar toggle button */
+    [data-testid="collapsedControl"] {
+        display: flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        background-color: var(--secondary-background-color) !important;
+        border: 2px solid var(--primary-color) !important;
+        border-radius: 8px !important;
+        padding: 10px !important;
+        margin: 12px !important;
+        box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.4) !important;
+        z-index: 999999 !important;
+        position: fixed !important;
+        top: 14px !important;
+        left: 14px !important;
+        width: 40px !important;
+        height: 40px !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
+    
+    [data-testid="collapsedControl"]:hover {
+        background-color: rgba(var(--primary-rgb), 0.2) !important;
+        box-shadow: 0 0 20px rgba(var(--primary-rgb), 0.6) !important;
+        transform: scale(1.05);
+    }
+    
+    [data-testid="collapsedControl"] svg {
+        stroke: var(--primary-color) !important;
+        width: 20px !important;
+        height: 20px !important;
+    }
+    
+    [data-testid="stSidebar"] button[kind="header"] {
+        background-color: transparent !important;
+        border: none !important;
+    }
+    
+    [data-testid="stSidebar"] button[kind="header"] svg {
+        stroke: var(--primary-color) !important;
+    }
+    
+    button[kind="header"] { z-index: 999999 !important; }
+    
+    .premium-header {
+        background: var(--secondary-background-color);
+        padding: 1.25rem 2rem;
+        border-radius: 16px;
+        margin-bottom: 1.5rem;
+        box-shadow: 0 0 20px rgba(var(--primary-rgb), 0.1);
+        border: 1px solid var(--border-color);
+        position: relative;
+        overflow: hidden;
+        margin-top: 1rem;
+    }
+    
+    .premium-header::before {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: radial-gradient(circle at 20% 50%, rgba(var(--primary-rgb),0.08) 0%, transparent 50%);
+        pointer-events: none;
+    }
+    
+    .premium-header h1 { margin: 0; font-size: 2rem; font-weight: 700; color: var(--text-primary); letter-spacing: -0.50px; position: relative; }
+    .premium-header .tagline { color: var(--text-muted); font-size: 0.9rem; margin-top: 0.25rem; font-weight: 400; position: relative; }
+    .premium-header .product-badge { display: inline-block; background: rgba(var(--primary-rgb), 0.15); color: var(--primary-color); padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.5rem; }
+    
+    .metric-card {
+        background-color: var(--bg-card);
+        padding: 1.25rem;
+        border-radius: 12px;
+        border: 1px solid var(--border-color);
+        box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.08);
+        margin-bottom: 0.5rem;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .metric-card:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(0,0,0,0.3); border-color: var(--border-light); }
+    .metric-card h4 { color: var(--text-muted); font-size: 0.75rem; margin-bottom: 0.5rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
+    .metric-card h2 { color: var(--text-primary); font-size: 1.75rem; font-weight: 700; margin: 0; line-height: 1; }
+    .metric-card .sub-metric { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem; font-weight: 500; }
+    .metric-card.success h2 { color: var(--success-green); }
+    .metric-card.danger h2 { color: var(--danger-red); }
+    .metric-card.warning h2 { color: var(--warning-amber); }
+    .metric-card.info h2 { color: var(--info-cyan); }
+    .metric-card.neutral h2 { color: var(--neutral); }
+    .metric-card.primary h2 { color: var(--primary-color); }
+    
+    .regime-card {
+        background-color: var(--bg-card);
+        padding: 1.5rem;
+        border-radius: 12px;
+        border: 1px solid var(--border-color);
+        box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.08);
+        margin-bottom: 1rem;
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .regime-card::before { content: ''; position: absolute; top: 0; left: 0; width: 4px; height: 100%; }
+    .regime-card.bull::before { background: var(--success-green); }
+    .regime-card.bear::before { background: var(--danger-red); }
+    .regime-card.chop::before { background: var(--warning-amber); }
+    
+    .status-badge { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.8rem; border-radius: 20px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+    .status-badge.bull { background: rgba(16, 185, 129, 0.15); color: var(--success-green); border: 1px solid rgba(16, 185, 129, 0.3); }
+    .status-badge.bear { background: rgba(239, 68, 68, 0.15); color: var(--danger-red); border: 1px solid rgba(239, 68, 68, 0.3); }
+    .status-badge.chop { background: rgba(245, 158, 11, 0.15); color: var(--warning-amber); border: 1px solid rgba(245, 158, 11, 0.3); }
+    .status-badge.neutral { background: rgba(136, 136, 136, 0.15); color: var(--neutral); border: 1px solid rgba(136, 136, 136, 0.3); }
+    
+    .info-box { background: var(--secondary-background-color); border: 1px solid var(--border-color); border-left: 0px solid var(--primary-color); padding: 1.25rem; border-radius: 12px; margin: 0.5rem 0; box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.08); }
+    .info-box h4 { color: var(--primary-color); margin: 0 0 0.5rem 0; font-size: 1rem; font-weight: 700; }
+    .info-box p { color: var(--text-muted); margin: 0; font-size: 0.9rem; line-height: 1.6; }
+    
+    .warning-box { background: rgba(245, 158, 11, 0.1); border: 1px solid var(--warning-amber); border-radius: 10px; padding: 1rem; margin: 1rem 0; }
+    
+    .stButton>button { border: 2px solid var(--primary-color); background: transparent; color: var(--primary-color); font-weight: 700; border-radius: 12px; padding: 0.75rem 2rem; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); text-transform: uppercase; letter-spacing: 0.5px; }
+    .stButton>button:hover { box-shadow: 0 0 25px rgba(var(--primary-rgb), 0.6); background: var(--primary-color); color: #1A1A1A; transform: translateY(-2px); }
+    .stButton>button:active { transform: translateY(0); }
+    
+    .stTabs [data-baseweb="tab-list"] { gap: 24px; background: transparent; }
+    .stTabs [data-baseweb="tab"] { color: var(--text-muted); border-bottom: 2px solid transparent; transition: color 0.3s, border-bottom 0.3s; background: transparent; font-weight: 600; }
+    .stTabs [aria-selected="true"] { color: var(--primary-color); border-bottom: 2px solid var(--primary-color); background: transparent !important; }
+    
+    .stPlotlyChart { border-radius: 12px; background-color: var(--secondary-background-color); padding: 10px; border: 1px solid var(--border-color); box-shadow: 0 0 25px rgba(var(--primary-rgb), 0.1); }
+    .stDataFrame { border-radius: 12px; background-color: var(--secondary-background-color); border: 1px solid var(--border-color); }
+    .section-divider { height: 1px; background: linear-gradient(90deg, transparent 0%, var(--border-color) 50%, transparent 100%); margin: 1.5rem 0; }
+    
+    .sidebar-title { font-size: 0.75rem; font-weight: 700; color: var(--primary-color); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.75rem; }
+    
+    [data-testid="stSidebar"] { background: var(--secondary-background-color); border-right: 1px solid var(--border-color); }
+    
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: var(--background-color); }
+    ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--border-light); }
 </style>
 """, unsafe_allow_html=True)
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# DATA FETCHING
-# ═══════════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
+# SESSION STATE
+# ══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_data(ttl=3600, show_spinner=False)
-def fetch_price_data(symbol: str, period: str = "1y") -> pd.Series:
-    try:
-        import yfinance as yf
-        ticker = yf.Ticker(symbol)
-        df = ticker.history(period=period)
-        return df['Close'] if not df.empty else None
-    except:
-        return None
-
-@st.cache_data(ttl=86400, show_spinner=False)
-def fetch_fno_stocks() -> list:
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(FNO_URL, headers=headers, timeout=10)
-        if response.status_code == 200:
-            df = pd.read_csv(StringIO(response.text))
-            if 'SYMBOL' in df.columns:
-                return [f"{s.strip()}.NS" for s in df['SYMBOL'].dropna().unique().tolist() if not s.startswith('NIFTY') and s.strip()][:200]
-    except:
-        pass
-    return ["RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "ICICIBANK.NS"]
-
-@st.cache_data(ttl=86400, show_spinner=False)
-def fetch_index_constituents(index_name: str) -> list:
-    if index_name not in INDEX_URLS:
-        return []
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(INDEX_URLS[index_name], headers=headers, timeout=10)
-        if response.status_code == 200:
-            df = pd.read_csv(StringIO(response.text))
-            if 'Symbol' in df.columns:
-                return [f"{s.strip()}.NS" for s in df['Symbol'].dropna().unique().tolist() if s.strip()]
-    except:
-        pass
-    return []
-
-def get_universe_symbols(universe: str, index_name: str = None) -> list:
-    if universe == "ETF Universe": return ETF_UNIVERSE
-    elif universe == "F&O Stocks": return fetch_fno_stocks()
-    elif universe == "Index Constituents" and index_name: return fetch_index_constituents(index_name)
-    return []
+if 'regime_result' not in st.session_state:
+    st.session_state.regime_result = None
+if 'historical_data' not in st.session_state:
+    st.session_state.historical_data = None
+if 'time_series_results' not in st.session_state:
+    st.session_state.time_series_results = None
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# ANALYSIS FUNCTIONS
-# ═══════════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
+# HELPER FUNCTIONS
+# ══════════════════════════════════════════════════════════════════════════════
 
-def calculate_universe_metrics(df: pd.DataFrame) -> dict:
-    bullish_count = len(df[df['Regime'].isin(BULLISH_REGIMES)])
-    bearish_count = len(df[df['Regime'].isin(BEARISH_REGIMES)])
-    total = len(df)
+def get_regime_color_class(regime: RegimeType) -> str:
+    """Get CSS class for regime coloring"""
+    bull_regimes = [RegimeType.STRONG_BULL, RegimeType.BULL]
+    bear_regimes = [RegimeType.BEAR, RegimeType.CRISIS]
     
-    df['RiskWeight'] = df['Regime'].map(REGIME_RISK_WEIGHTS)
-    weighted_risk = (df['RiskWeight'] * df['Confidence']).sum() / df['Confidence'].sum() if df['Confidence'].sum() > 0 else 0.5
-    
-    strong_bullish = len(df[df['Momentum'].isin(['STRONG_BULLISH', 'BULLISH'])])
-    strong_bearish = len(df[df['Momentum'].isin(['STRONG_BEARISH', 'BEARISH'])])
-    uptrend_count = len(df[df['Trend'].isin(['UPTREND', 'STRONG_UPTREND'])])
-    downtrend_count = len(df[df['Trend'].isin(['DOWNTREND', 'STRONG_DOWNTREND'])])
-    
-    regime_counts = df['Regime'].value_counts(normalize=True)
-    
-    return {
-        'total': total, 'bullish_count': bullish_count, 'bearish_count': bearish_count,
-        'neutral_count': total - bullish_count - bearish_count,
-        'bullish_pct': bullish_count / total if total > 0 else 0,
-        'bearish_pct': bearish_count / total if total > 0 else 0,
-        'weighted_risk': weighted_risk,
-        'osc_mean': df['Oscillator'].mean(), 'osc_std': df['Oscillator'].std(),
-        'avg_exposure': df['Exposure'].mean(),
-        'momentum_breadth': (strong_bullish - strong_bearish) / total if total > 0 else 0,
-        'trend_breadth': (uptrend_count - downtrend_count) / total if total > 0 else 0,
-        'concentration': (regime_counts ** 2).sum(),
-        'regime_distribution': regime_counts.to_dict()
-    }
-
-def generate_insights(df: pd.DataFrame, metrics: dict) -> list:
-    insights = []
-    
-    if metrics['bullish_pct'] > 0.6:
-        insights.append({'type': 'bullish', 'title': 'Strong Bullish Breadth', 'text': f"{metrics['bullish_pct']*100:.0f}% of universe in bullish regimes. Consider momentum strategies."})
-    elif metrics['bearish_pct'] > 0.5:
-        insights.append({'type': 'bearish', 'title': 'Elevated Bearish Concentration', 'text': f"{metrics['bearish_pct']*100:.0f}% in bearish regimes. Defensive positioning recommended."})
-    
-    if metrics['concentration'] > 0.3:
-        dominant = max(metrics['regime_distribution'], key=metrics['regime_distribution'].get)
-        insights.append({'type': 'warning', 'title': 'Regime Concentration', 'text': f"High concentration in {dominant} ({metrics['regime_distribution'][dominant]*100:.0f}%). Monitor for transitions."})
-    
-    if metrics['osc_mean'] > 30:
-        insights.append({'type': 'warning', 'title': 'Universe Overbought', 'text': f"Mean oscillator at {metrics['osc_mean']:.1f}. Elevated mean-reversion risk."})
-    elif metrics['osc_mean'] < -30:
-        insights.append({'type': 'opportunity', 'title': 'Universe Oversold', 'text': f"Mean oscillator at {metrics['osc_mean']:.1f}. Contrarian opportunity if fundamentals support."})
-    
-    high_vol = len(df[df['Volatility'].isin(['ELEVATED', 'EXTREME'])])
-    if high_vol / metrics['total'] > 0.4:
-        insights.append({'type': 'warning', 'title': 'High Volatility', 'text': f"{high_vol} symbols ({high_vol/metrics['total']*100:.0f}%) with elevated volatility. Reduce position sizes."})
-    
-    return insights[:3]
-
-def get_sector_analysis(df: pd.DataFrame) -> pd.DataFrame:
-    if 'Category' not in df.columns: return None
-    
-    stats = df.groupby('Category').agg({
-        'Oscillator': ['mean', 'count'],
-        'Exposure': 'mean',
-        'Risk': 'mean'
-    }).round(2)
-    stats.columns = ['Osc Mean', 'Count', 'Avg Exposure', 'Avg Risk']
-    stats = stats.reset_index()
-    
-    bullish_pct = df[df['Regime'].isin(BULLISH_REGIMES)].groupby('Category').size() / df.groupby('Category').size()
-    stats['Bullish %'] = stats['Category'].map(bullish_pct).fillna(0)
-    
-    return stats.sort_values('Osc Mean', ascending=False)
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# CHART FUNCTIONS
-# ═══════════════════════════════════════════════════════════════════════════════
-
-CHART_COLORS = dict(
-    paper_bgcolor='#111111',
-    plot_bgcolor='#111111',
-    font=dict(family="Inter", color='#f5f5f5', size=11),
-)
-
-def create_regime_donut(df: pd.DataFrame) -> go.Figure:
-    counts = df['Regime'].value_counts()
-    colors = [REGIME_COLORS.get(RegimeType(r), '#6b7280') for r in counts.index]
-    
-    fig = go.Figure(data=[go.Pie(
-        labels=counts.index, values=counts.values, hole=0.65,
-        marker_colors=colors, textinfo='percent', textposition='outside',
-        textfont=dict(size=10, color='#f5f5f5'),
-        hovertemplate='<b>%{label}</b><br>Count: %{value}<br>%{percent}<extra></extra>'
-    )])
-    
-    fig.update_layout(**CHART_COLORS, height=320, margin=dict(l=20, r=20, t=30, b=20), showlegend=False,
-        annotations=[dict(text=f'<b>{len(df)}</b><br><span style="font-size:10px">Symbols</span>', 
-                         x=0.5, y=0.5, font_size=18, font_color='#f5f5f5', showarrow=False)])
-    return fig
-
-def create_oscillator_histogram(df: pd.DataFrame) -> go.Figure:
-    fig = go.Figure()
-    
-    for regime_type, color, name in [(BULLISH_REGIMES, '#10b981', 'Bullish'), (BEARISH_REGIMES, '#ef4444', 'Bearish'), (NEUTRAL_REGIMES, '#6b7280', 'Neutral')]:
-        subset = df[df['Regime'].isin(regime_type)]
-        if len(subset) > 0:
-            fig.add_trace(go.Histogram(x=subset['Oscillator'], name=name, marker_color=color, opacity=0.75, nbinsx=15))
-    
-    fig.add_vline(x=df['Oscillator'].mean(), line_dash="dash", line_color="#FFC300", annotation_text=f"μ={df['Oscillator'].mean():.1f}", annotation_font_color="#FFC300")
-    fig.add_vline(x=0, line_dash="dot", line_color="#6b7280")
-    
-    fig.update_layout(**CHART_COLORS, height=320, margin=dict(l=50, r=30, t=30, b=50), barmode='overlay',
-        xaxis=dict(title="Oscillator", gridcolor='#262626', range=[-100, 100], zeroline=False),
-        yaxis=dict(title="Count", gridcolor='#262626', zeroline=False),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font_size=10))
-    return fig
-
-def create_risk_gauge(risk: float) -> go.Figure:
-    fig = go.Figure(go.Indicator(
-        mode="gauge+number",
-        value=risk * 100,
-        number={'suffix': '%', 'font': {'size': 32, 'color': '#f5f5f5'}},
-        gauge={
-            'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': '#f5f5f5', 'tickfont': {'size': 10}},
-            'bar': {'color': '#FFC300', 'thickness': 0.3},
-            'bgcolor': '#262626',
-            'borderwidth': 0,
-            'steps': [{'range': [0, 35], 'color': '#10b981'}, {'range': [35, 65], 'color': '#f59e0b'}, {'range': [65, 100], 'color': '#ef4444'}],
-        }
-    ))
-    fig.update_layout(**CHART_COLORS, height=220, margin=dict(l=30, r=30, t=40, b=20))
-    return fig
-
-def create_breadth_bars(metrics: dict) -> go.Figure:
-    cats = ['Regime', 'Momentum', 'Trend']
-    vals = [(metrics['bullish_pct'] - metrics['bearish_pct']) * 100, metrics['momentum_breadth'] * 100, metrics['trend_breadth'] * 100]
-    colors = ['#10b981' if v > 0 else '#ef4444' for v in vals]
-    
-    fig = go.Figure(go.Bar(x=cats, y=vals, marker_color=colors, text=[f"{v:+.0f}%" for v in vals], textposition='outside', textfont=dict(color='#f5f5f5', size=11)))
-    fig.add_hline(y=0, line_dash="dash", line_color="#6b7280")
-    fig.update_layout(**CHART_COLORS, height=220, margin=dict(l=50, r=30, t=30, b=50), xaxis=dict(gridcolor='#262626'), yaxis=dict(title="Breadth %", gridcolor='#262626', range=[-100, 100], zeroline=False), showlegend=False)
-    return fig
-
-def create_scatter_plot(df: pd.DataFrame) -> go.Figure:
-    fig = go.Figure()
-    
-    for regime in df['Regime'].unique():
-        subset = df[df['Regime'] == regime]
-        color = REGIME_COLORS.get(RegimeType(regime), '#6b7280')
-        fig.add_trace(go.Scatter(
-            x=subset['Oscillator'], y=subset['Exposure'] * 100, mode='markers', name=regime,
-            marker=dict(color=color, size=9, opacity=0.8, line=dict(width=1, color='#111111')),
-            text=subset['Name'], hovertemplate='<b>%{text}</b><br>Osc: %{x:.1f}<br>Exp: %{y:.0f}%<extra></extra>'
-        ))
-    
-    fig.add_hline(y=70, line_dash="dot", line_color="#10b981", annotation_text="High", annotation_font_size=10)
-    fig.add_hline(y=40, line_dash="dot", line_color="#ef4444", annotation_text="Low", annotation_font_size=10)
-    fig.add_vline(x=0, line_dash="dot", line_color="#6b7280")
-    
-    fig.update_layout(**CHART_COLORS, height=400, margin=dict(l=50, r=30, t=30, b=50), xaxis=dict(title="Oscillator", gridcolor='#262626', range=[-100, 100], zeroline=False),
-        yaxis=dict(title="Exposure %", gridcolor='#262626', range=[0, 150], zeroline=False),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5, font_size=9))
-    return fig
-
-def create_sector_heatmap(df: pd.DataFrame) -> go.Figure:
-    if 'Category' not in df.columns: return None
-    
-    pivot = df.pivot_table(values='Oscillator', index='Category', columns='Regime', aggfunc='count', fill_value=0)
-    order = ['CRISIS', 'BEAR_ACCELERATION', 'BEAR_DECELERATION', 'DISTRIBUTION', 'CHOP', 'TRANSITION', 'ACCUMULATION', 'EARLY_BULL', 'BULL_TREND', 'BULL_EUPHORIA']
-    pivot = pivot[[c for c in order if c in pivot.columns]]
-    
-    fig = go.Figure(data=go.Heatmap(
-        z=pivot.values, x=pivot.columns, y=pivot.index,
-        colorscale=[[0, '#111111'], [0.5, '#FFC300'], [1, '#FFC300']],
-        showscale=False, text=pivot.values, texttemplate="%{text}", textfont=dict(color='#f5f5f5', size=11)
-    ))
-    fig.update_layout(**CHART_COLORS, height=350, margin=dict(l=100, r=30, t=30, b=80), xaxis=dict(tickangle=45, tickfont=dict(size=9)), yaxis=dict(tickfont=dict(size=10)))
-    return fig
-
-def create_price_chart(prices: pd.Series, signal: RegimeSignal, symbol: str) -> go.Figure:
-    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.08, row_heights=[0.72, 0.28])
-    
-    fig.add_trace(go.Scatter(x=prices.index, y=prices.values, mode='lines', name='Price', line=dict(color='#FFC300', width=2), fill='tozeroy', fillcolor='rgba(255, 195, 0, 0.08)'), row=1, col=1)
-    
-    if len(prices) >= 20:
-        fig.add_trace(go.Scatter(x=prices.index, y=prices.rolling(20).mean(), mode='lines', name='MA20', line=dict(color='#06b6d4', width=1, dash='dot')), row=1, col=1)
-    if len(prices) >= 50:
-        fig.add_trace(go.Scatter(x=prices.index, y=prices.rolling(50).mean(), mode='lines', name='MA50', line=dict(color='#a855f7', width=1, dash='dot')), row=1, col=1)
-    
-    osc_color = '#10b981' if signal.composite_oscillator > 0 else '#ef4444'
-    fig.add_trace(go.Bar(x=[prices.index[-1]], y=[signal.composite_oscillator], name='Osc', marker_color=osc_color, showlegend=False), row=2, col=1)
-    fig.add_hline(y=0, line_dash="dash", line_color="#6b7280", row=2, col=1)
-    
-    fig.update_layout(**CHART_COLORS, height=450, margin=dict(l=50, r=30, t=40, b=40), showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font_size=10), hovermode='x unified')
-    fig.update_xaxes(gridcolor='#262626', zeroline=False)
-    fig.update_yaxes(gridcolor='#262626', zeroline=False, title_text="Price", row=1, col=1)
-    fig.update_yaxes(gridcolor='#262626', zeroline=False, title_text="Osc", range=[-100, 100], row=2, col=1)
-    return fig
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SIDEBAR
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def render_sidebar():
-    with st.sidebar:
-        st.markdown('<div class="sidebar-brand"><h2>🔮 AVASTHA</h2><p>आवस्था • Market Regime</p></div>', unsafe_allow_html=True)
-        st.markdown('<div class="sidebar-divider"></div>', unsafe_allow_html=True)
-        
-        st.markdown('<div class="sidebar-label">Analysis Mode</div>', unsafe_allow_html=True)
-        mode = st.radio("Mode", ["📈 Individual Scrip", "📊 Index Universe"], label_visibility="collapsed")
-        
-        st.markdown('<div class="sidebar-divider"></div>', unsafe_allow_html=True)
-        
-        symbol, universe, index_name = None, None, None
-        
-        if "Individual" in mode:
-            st.markdown('<div class="sidebar-label">Symbol</div>', unsafe_allow_html=True)
-            symbol = st.text_input("Symbol", value="NIFTYIETF.NS", placeholder="e.g., RELIANCE.NS", label_visibility="collapsed")
-        else:
-            st.markdown('<div class="sidebar-label">Universe</div>', unsafe_allow_html=True)
-            universe = st.selectbox("Universe", UNIVERSE_OPTIONS, label_visibility="collapsed")
-            if universe == "Index Constituents":
-                index_name = st.selectbox("Index", INDEX_LIST, index=0)
-        
-        st.markdown('<div class="sidebar-divider"></div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="info-box"><p style="font-size:0.75rem;margin:0;"><b>Version:</b> {VERSION}<br><b>Engine:</b> Multi-Model<br><b>Regimes:</b> 10 States</p></div>', unsafe_allow_html=True)
-        
-        return mode, symbol, universe, index_name
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# INDIVIDUAL SCRIP MODE
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def run_individual_mode(symbol: str):
-    st.markdown(f'<div class="app-header"><h1>🔮 AVASTHA</h1><p>Multi-Model Market Regime Detection • {symbol}</p></div>', unsafe_allow_html=True)
-    
-    with st.spinner(f"Analyzing {symbol}..."):
-        prices = fetch_price_data(symbol, period="1y")
-    
-    if prices is None or len(prices) < 100:
-        st.error(f"Insufficient data for {symbol}. Please check the symbol.")
-        return
-    
-    engine = MarketRegimeEngine()
-    signal = engine.detect_regime(prices)
-    regime_color = REGIME_COLORS.get(signal.primary_regime, '#6b7280')
-    emoji = REGIME_EMOJIS.get(signal.primary_regime, '📊')
-    
-    # Primary Metrics
-    osc_class = 'green' if signal.composite_oscillator > 0 else 'red'
-    exp_class = 'green' if signal.recommended_exposure >= 0.7 else ('amber' if signal.recommended_exposure >= 0.4 else 'red')
-    sig_class = 'primary' if signal.signal_strength >= 0.5 else ''
-    
-    st.markdown(f"""
-    <div class="metric-grid metric-grid-4">
-        <div class="metric-card accent" style="border-top-color: {regime_color};">
-            <div class="label">Current Regime</div>
-            <div class="value" style="color: {regime_color}; font-size: 1.25rem;">{emoji} {signal.primary_regime.value}</div>
-            <div class="subtext">Confidence: {signal.primary_confidence*100:.0f}%</div>
-        </div>
-        <div class="metric-card">
-            <div class="label">Composite Oscillator</div>
-            <div class="value {osc_class}">{signal.composite_oscillator:+.1f}</div>
-            <div class="subtext">Range: -100 to +100</div>
-        </div>
-        <div class="metric-card">
-            <div class="label">Recommended Exposure</div>
-            <div class="value {exp_class}">{signal.recommended_exposure*100:.0f}%</div>
-            <div class="subtext">Based on regime</div>
-        </div>
-        <div class="metric-card">
-            <div class="label">Signal Strength</div>
-            <div class="value {sig_class}">{signal.signal_strength*100:.0f}%</div>
-            <div class="subtext">Conviction level</div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Sub-regimes
-    vol_class = 'green' if signal.volatility_regime == VolatilityRegime.COMPRESSED else ('red' if signal.volatility_regime == VolatilityRegime.EXTREME else 'amber')
-    mom_class = 'green' if 'BULLISH' in signal.momentum_regime.value else ('red' if 'BEARISH' in signal.momentum_regime.value else '')
-    trend_class = 'green' if 'UP' in signal.trend_regime.value else ('red' if 'DOWN' in signal.trend_regime.value else '')
-    risk_class = 'green' if signal.risk_score < 40 else ('red' if signal.risk_score > 70 else 'amber')
-    
-    st.markdown('<div class="section-title">Sub-Regime Analysis</div>', unsafe_allow_html=True)
-    st.markdown(f"""
-    <div class="metric-grid metric-grid-4">
-        <div class="metric-card">
-            <div class="label">Volatility</div>
-            <div class="value {vol_class}" style="font-size: 1.1rem;">{signal.volatility_regime.value}</div>
-            <div class="subtext">Percentile: {signal.volatility_percentile:.0f}%</div>
-        </div>
-        <div class="metric-card">
-            <div class="label">Momentum</div>
-            <div class="value {mom_class}" style="font-size: 1.1rem;">{signal.momentum_regime.value}</div>
-            <div class="subtext">Directional bias</div>
-        </div>
-        <div class="metric-card">
-            <div class="label">Trend</div>
-            <div class="value {trend_class}" style="font-size: 1.1rem;">{signal.trend_regime.value}</div>
-            <div class="subtext">Structural state</div>
-        </div>
-        <div class="metric-card">
-            <div class="label">Risk Score</div>
-            <div class="value {risk_class}">{signal.risk_score:.0f}</div>
-            <div class="subtext">0 = Low, 100 = High</div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Chart
-    st.markdown('<div class="section-title">Price & Oscillator</div>', unsafe_allow_html=True)
-    fig = create_price_chart(prices, signal, symbol)
-    st.plotly_chart(fig, width='stretch')
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# INDEX UNIVERSE MODE
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def run_index_mode(universe: str, index_name: str = None):
-    title = "ETF Universe" if universe == "ETF Universe" else ("F&O Stocks" if universe == "F&O Stocks" else index_name)
-    
-    st.markdown(f'<div class="app-header"><h1>🔮 AVASTHA</h1><p>Universe Regime Screening • {title}</p></div>', unsafe_allow_html=True)
-    
-    symbols = get_universe_symbols(universe, index_name)
-    if not symbols:
-        st.error("Could not fetch symbols.")
-        return
-    
-    cache_key = f"avastha_{universe}_{index_name}"
-    
-    if cache_key not in st.session_state:
-        st.markdown(f'<div class="info-box"><h4>📊 {title}</h4><p>Ready to analyze {len(symbols)} symbols for regime classification.</p></div>', unsafe_allow_html=True)
-        
-        if st.button("🚀 Run Screening", use_container_width=True):
-            results = run_screening(symbols, universe)
-            if results:
-                st.session_state[cache_key] = results
-                st.rerun()
+    if regime in bull_regimes:
+        return "bull"
+    elif regime in bear_regimes:
+        return "bear"
     else:
-        render_dashboard(st.session_state[cache_key], universe, title)
+        return "chop"
+
+
+def get_regime_color(regime: RegimeType) -> str:
+    """Get hex color for regime"""
+    bull_regimes = [RegimeType.STRONG_BULL, RegimeType.BULL]
+    bear_regimes = [RegimeType.BEAR, RegimeType.CRISIS]
+    
+    if regime in bull_regimes:
+        return "#10b981"
+    elif regime in bear_regimes:
+        return "#ef4444"
+    else:
+        return "#f59e0b"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CHART FUNCTIONS
+# ══════════════════════════════════════════════════════════════════════════════
+
+def create_composite_score_chart(score: float) -> go.Figure:
+    """Create visualization for composite regime score"""
+    fig = go.Figure()
+    
+    # Background bar
+    fig.add_trace(go.Bar(
+        x=[4], y=['Score'], orientation='h',
+        marker=dict(color=['rgba(50,50,50,0.5)']),
+        showlegend=False, hoverinfo='none'
+    ))
+    
+    # Score indicator
+    normalized_score = score + 2  # Shift to 0-4 range
+    color = "#10b981" if score >= 0.5 else "#ef4444" if score <= -0.5 else "#f59e0b"
+    
+    fig.add_trace(go.Scatter(
+        x=[normalized_score], y=['Score'],
+        mode='markers',
+        marker=dict(size=25, color=color, symbol='diamond', line=dict(width=2, color='white')),
+        showlegend=False,
+        hovertemplate=f"<b>Composite Score:</b> {score:.2f}<extra></extra>"
+    ))
+    
+    # Regime zone backgrounds
+    zones = [
+        (0, 0.5, '#ef4444'), (0.5, 1.5, '#f87171'), (1.5, 1.9, '#fbbf24'),
+        (1.9, 2.1, '#888888'), (2.1, 2.5, '#86efac'), (2.5, 3.0, '#34d399'), (3.0, 4.0, '#10b981')
+    ]
+    
+    for start, end, zone_color in zones:
+        fig.add_vrect(x0=start, x1=end, fillcolor=zone_color, opacity=0.15, line_width=0)
+    
+    fig.update_layout(
+        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+        font={'color': '#EAEAEA'}, height=100,
+        margin=dict(l=10, r=10, t=10, b=30),
+        xaxis=dict(
+            range=[0, 4],
+            tickvals=[0.25, 1, 1.7, 2, 2.3, 2.75, 3.5],
+            ticktext=['Crisis', 'Bear', 'W.Bear', 'Chop', 'W.Bull', 'Bull', 'S.Bull'],
+            tickfont=dict(size=10), showgrid=False
+        ),
+        yaxis=dict(visible=False)
+    )
+    
+    return fig
+
+
+def create_factor_breakdown_chart(result: RegimeResult) -> go.Figure:
+    """Create horizontal bar chart showing factor contributions"""
+    factors = result.factors
+    
+    names = []
+    scores = []
+    colors = []
+    
+    for name, factor in factors.items():
+        names.append(name.upper())
+        scores.append(factor.score)
+        if factor.score >= 0.5:
+            colors.append('#10b981')
+        elif factor.score <= -0.5:
+            colors.append('#ef4444')
+        else:
+            colors.append('#f59e0b')
+    
+    fig = go.Figure(go.Bar(
+        x=scores, y=names, orientation='h',
+        marker_color=colors,
+        text=[f"{s:+.2f}" for s in scores],
+        textposition='outside',
+        textfont=dict(color='#EAEAEA')
+    ))
+    
+    fig.update_layout(
+        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='#1A1A1A',
+        font={'color': '#EAEAEA'}, height=300,
+        margin=dict(l=100, r=50, t=30, b=30),
+        xaxis=dict(
+            range=[-2.5, 2.5], zeroline=True, zerolinecolor='#888', zerolinewidth=2,
+            gridcolor='rgba(42,42,42,0.5)', title="Factor Score"
+        ),
+        yaxis=dict(gridcolor='rgba(42,42,42,0.5)')
+    )
+    
+    fig.add_vline(x=-1, line_dash="dash", line_color="#ef4444", opacity=0.5)
+    fig.add_vline(x=1, line_dash="dash", line_color="#10b981", opacity=0.5)
+    
+    return fig
+
+
+def create_time_series_chart(ts_results: list) -> go.Figure:
+    """Create time series chart for regime evolution"""
+    dates = [r['date'] for r in ts_results]
+    scores = [r['score'] for r in ts_results]
+    regimes = [r['regime'] for r in ts_results]
+    
+    colors = [get_regime_color(RegimeType[r]) for r in regimes]
+    
+    fig = go.Figure()
+    
+    # Fill areas
+    fig.add_trace(go.Scatter(
+        x=dates, y=[max(0, s) for s in scores],
+        fill='tozeroy', fillcolor='rgba(16,185,129,0.15)',
+        line=dict(width=0), showlegend=False, hoverinfo='skip'
+    ))
+    
+    fig.add_trace(go.Scatter(
+        x=dates, y=[min(0, s) for s in scores],
+        fill='tozeroy', fillcolor='rgba(239,68,68,0.15)',
+        line=dict(width=0), showlegend=False, hoverinfo='skip'
+    ))
+    
+    # Main line with markers
+    fig.add_trace(go.Scatter(
+        x=dates, y=scores,
+        mode='lines+markers',
+        line=dict(color='#FFC300', width=2),
+        marker=dict(size=8, color=colors, line=dict(width=1, color='white')),
+        hovertemplate="<b>%{x}</b><br>Score: %{y:.2f}<extra></extra>"
+    ))
+    
+    # Threshold lines
+    fig.add_hline(y=1.0, line=dict(color='rgba(16,185,129,0.5)', width=1, dash='dash'))
+    fig.add_hline(y=-0.5, line=dict(color='rgba(239,68,68,0.5)', width=1, dash='dash'))
+    fig.add_hline(y=0, line=dict(color='rgba(255,255,255,0.3)', width=1))
+    
+    # Regime zones
+    fig.add_hrect(y0=1.0, y1=2.5, fillcolor='rgba(16,185,129,0.08)', line_width=0)
+    fig.add_hrect(y0=-2.5, y1=-0.5, fillcolor='rgba(239,68,68,0.08)', line_width=0)
+    
+    fig.update_layout(
+        template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='#1A1A1A',
+        height=400, margin=dict(l=10, r=10, t=30, b=50),
+        xaxis=dict(showgrid=True, gridcolor='rgba(42,42,42,0.5)'),
+        yaxis=dict(showgrid=True, gridcolor='rgba(42,42,42,0.5)', title='Regime Score', range=[-2, 2]),
+        font=dict(family='Inter', color='#EAEAEA'),
+        hovermode='x unified', showlegend=False
+    )
+    
+    return fig
+
+
+def create_regime_distribution_chart(ts_results: list) -> go.Figure:
+    """Create pie chart for regime distribution"""
+    regime_counts = {}
+    for r in ts_results:
+        regime = r['regime']
+        regime_counts[regime] = regime_counts.get(regime, 0) + 1
+    
+    labels = list(regime_counts.keys())
+    values = list(regime_counts.values())
+    
+    color_map = {
+        'STRONG_BULL': '#10b981', 'BULL': '#34d399', 'WEAK_BULL': '#86efac',
+        'CHOP': '#888888',
+        'WEAK_BEAR': '#fbbf24', 'BEAR': '#f87171', 'CRISIS': '#ef4444'
+    }
+    colors = [color_map.get(l, '#888888') for l in labels]
+    
+    fig = go.Figure(go.Pie(
+        labels=labels, values=values,
+        hole=0.5,
+        marker=dict(colors=colors, line=dict(color='#1A1A1A', width=2)),
+        textinfo='label+percent',
+        textfont=dict(size=11, color='white')
+    ))
+    
+    fig.update_layout(
+        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+        height=300, margin=dict(l=20, r=20, t=30, b=20),
+        font=dict(family='Inter', color='#EAEAEA'),
+        showlegend=False
+    )
+    
+    return fig
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# DISPLAY FUNCTIONS
+# ══════════════════════════════════════════════════════════════════════════════
+
+def display_single_day_result(result: RegimeResult):
+    """Display single day regime detection result"""
+    regime_class = get_regime_color_class(result.regime)
+    detector = MarketRegimeDetector()
+    emoji = detector.get_regime_emoji(result.regime)
+    
+    # Main regime display
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col1:
+        st.markdown(f"""
+        <div class='metric-card {regime_class}'>
+            <h4>Detected Regime</h4>
+            <h2>{emoji} {result.regime_name}</h2>
+            <div class='sub-metric'>Analysis: {result.analysis_date}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown(f"""
+        <div class='metric-card'>
+            <h4>Suggested Portfolio Mix</h4>
+            <h2 style='font-size: 1.4rem;'>{result.suggested_mix}</h2>
+            <div class='sub-metric'>Based on multi-factor analysis</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col3:
+        confidence_pct = result.confidence * 100
+        conf_class = "success" if confidence_pct >= 75 else "warning" if confidence_pct >= 60 else "neutral"
+        st.markdown(f"""
+        <div class='metric-card {conf_class}'>
+            <h4>Confidence</h4>
+            <h2>{confidence_pct:.0f}%</h2>
+            <div class='sub-metric'>Score: {result.composite_score:+.2f}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # Warnings
+    if result.warnings:
+        for warning in result.warnings:
+            st.markdown(f"""
+            <div class='warning-box'>
+                ⚠️ <strong>Warning:</strong> {warning}
+            </div>
+            """, unsafe_allow_html=True)
+    
+    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+    
+    # Composite score visualization
+    st.markdown("##### Regime Score Position")
+    score_chart = create_composite_score_chart(result.composite_score)
+    st.plotly_chart(score_chart, use_container_width=True, config={'displayModeBar': False})
+    
+    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+    
+    # Factor breakdown
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        st.markdown("##### Factor Contributions")
+        breakdown_chart = create_factor_breakdown_chart(result)
+        st.plotly_chart(breakdown_chart, use_container_width=True, config={'displayModeBar': False})
+    
+    with col2:
+        st.markdown("##### Factor Details")
+        for name, factor in result.factors.items():
+            score_color = "🟢" if factor.score >= 0.5 else "🔴" if factor.score <= -0.5 else "🟡"
+            with st.expander(f"{score_color} **{name.upper()}** — {factor.classification}", expanded=False):
+                st.write(f"**Score:** {factor.score:+.2f}")
+                if factor.metrics:
+                    st.write("**Metrics:**")
+                    for k, v in factor.metrics.items():
+                        if isinstance(v, float):
+                            st.write(f"- {k}: {v:.3f}")
+                        else:
+                            st.write(f"- {k}: {v}")
+    
+    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+    
+    # Full explanation
+    st.markdown("##### Analysis Summary")
+    st.markdown(f"""
+    <div class='info-box'>
+        {result.explanation.replace(chr(10), '<br>')}
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def display_time_series_results(ts_results: list):
+    """Display time series regime analysis results"""
+    
+    # Summary metrics
+    total_days = len(ts_results)
+    bull_days = sum(1 for r in ts_results if r['regime'] in ['STRONG_BULL', 'BULL'])
+    bear_days = sum(1 for r in ts_results if r['regime'] in ['BEAR', 'CRISIS'])
+    chop_days = total_days - bull_days - bear_days
+    avg_score = np.mean([r['score'] for r in ts_results])
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.markdown(f"""
+        <div class='metric-card neutral'>
+            <h4>Days Analyzed</h4>
+            <h2>{total_days}</h2>
+            <div class='sub-metric'>Trading Days</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown(f"""
+        <div class='metric-card success'>
+            <h4>Bull Days</h4>
+            <h2>{bull_days}</h2>
+            <div class='sub-metric'>{bull_days/total_days*100:.1f}% of period</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col3:
+        st.markdown(f"""
+        <div class='metric-card danger'>
+            <h4>Bear Days</h4>
+            <h2>{bear_days}</h2>
+            <div class='sub-metric'>{bear_days/total_days*100:.1f}% of period</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col4:
+        score_class = "success" if avg_score > 0.5 else "danger" if avg_score < -0.5 else "warning"
+        st.markdown(f"""
+        <div class='metric-card {score_class}'>
+            <h4>Avg Score</h4>
+            <h2>{avg_score:+.2f}</h2>
+            <div class='sub-metric'>Mean Regime Score</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+    
+    # Tabs for different views
+    tab1, tab2, tab3 = st.tabs(["📈 Regime Evolution", "📊 Distribution", "📋 Data Table"])
+    
+    with tab1:
+        st.markdown("##### Regime Score Over Time")
+        st.markdown('<p style="color: #888888; font-size: 0.85rem;">Green zone = Bullish | Red zone = Bearish | Yellow line = Threshold</p>', unsafe_allow_html=True)
+        
+        fig = create_time_series_chart(ts_results)
+        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+    
+    with tab2:
+        col_d1, col_d2 = st.columns(2)
+        
+        with col_d1:
+            st.markdown("##### Regime Distribution")
+            dist_chart = create_regime_distribution_chart(ts_results)
+            st.plotly_chart(dist_chart, use_container_width=True, config={'displayModeBar': False})
+        
+        with col_d2:
+            st.markdown("##### Regime Statistics")
+            regime_stats = {}
+            for r in ts_results:
+                regime = r['regime']
+                regime_stats[regime] = regime_stats.get(regime, 0) + 1
+            
+            stats_df = pd.DataFrame([
+                {"Regime": k, "Days": v, "Percentage": f"{v/total_days*100:.1f}%"}
+                for k, v in sorted(regime_stats.items(), key=lambda x: -x[1])
+            ])
+            st.dataframe(stats_df, use_container_width=True, hide_index=True)
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown("##### Score Statistics")
+            scores = [r['score'] for r in ts_results]
+            score_stats = pd.DataFrame([
+                {"Metric": "Mean", "Value": f"{np.mean(scores):.2f}"},
+                {"Metric": "Median", "Value": f"{np.median(scores):.2f}"},
+                {"Metric": "Std Dev", "Value": f"{np.std(scores):.2f}"},
+                {"Metric": "Min", "Value": f"{np.min(scores):.2f}"},
+                {"Metric": "Max", "Value": f"{np.max(scores):.2f}"},
+            ])
+            st.dataframe(score_stats, use_container_width=True, hide_index=True)
+    
+    with tab3:
+        st.markdown(f"##### Daily Regime Data ({len(ts_results)} trading days)")
+        
+        display_df = pd.DataFrame(ts_results)
+        display_df['date'] = pd.to_datetime(display_df['date']).dt.strftime('%Y-%m-%d')
+        display_df['score'] = display_df['score'].round(2)
+        display_df['confidence'] = (display_df['confidence'] * 100).round(0).astype(int).astype(str) + '%'
+        display_df = display_df[['date', 'regime', 'score', 'confidence', 'mix']]
+        display_df.columns = ['Date', 'Regime', 'Score', 'Confidence', 'Suggested Mix']
+        
+        st.dataframe(display_df, use_container_width=True, hide_index=True, height=400)
         
         st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("🔄 Re-run"):
-            del st.session_state[cache_key]
-            st.rerun()
+        csv_data = display_df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📥 Download Regime Time Series (CSV)",
+            data=csv_data,
+            file_name=f"avastha_regime_timeseries.csv",
+            mime="text/csv"
+        )
 
 
-def run_screening(symbols: list, universe: str) -> list:
-    results = []
-    engine = MarketRegimeEngine()
-    progress = st.progress(0)
-    status = st.empty()
-    
-    for i, sym in enumerate(symbols):
-        status.markdown(f"**Analyzing {sym}... ({i+1}/{len(symbols)})**")
-        try:
-            prices = fetch_price_data(sym, period="1y")
-            if prices is not None and len(prices) >= 100:
-                signal = engine.detect_regime(prices)
-                results.append({
-                    'Symbol': sym, 'Name': ETF_DISPLAY_NAMES.get(sym, sym.replace('.NS', '')),
-                    'Category': ETF_CATEGORIES.get(sym, 'Other'),
-                    'Regime': signal.primary_regime.value, 'Confidence': signal.primary_confidence,
-                    'Oscillator': signal.composite_oscillator, 'Exposure': signal.recommended_exposure,
-                    'Volatility': signal.volatility_regime.value, 'Momentum': signal.momentum_regime.value,
-                    'Trend': signal.trend_regime.value, 'Risk': signal.risk_score, 'Signal': signal.signal_strength,
-                    'Price': prices.iloc[-1], 'Change': ((prices.iloc[-1] / prices.iloc[-2]) - 1) * 100 if len(prices) >= 2 else 0
-                })
-        except: pass
-        progress.progress((i + 1) / len(symbols))
-        time.sleep(0.05)
-    
-    progress.empty()
-    status.empty()
-    return results
+# ══════════════════════════════════════════════════════════════════════════════
+# SIDEBAR & MAIN
+# ══════════════════════════════════════════════════════════════════════════════
 
-
-def render_dashboard(results: list, universe: str, title: str):
-    df = pd.DataFrame(results)
-    if df.empty:
-        st.error("No data retrieved.")
-        return
-    
-    metrics = calculate_universe_metrics(df)
-    insights = generate_insights(df, metrics)
-    
-    # Tabs
-    tabs = st.tabs(["📊 Overview", "📈 Risk", "🏭 Sectors", "🔍 Screener", "🎯 Drill-Down"])
-    
-    # === OVERVIEW TAB ===
-    with tabs[0]:
-        osc_class = 'green' if metrics['osc_mean'] > 0 else 'red'
-        exp_class = 'green' if metrics['avg_exposure'] >= 0.7 else ('amber' if metrics['avg_exposure'] >= 0.4 else 'red')
-        risk_class = 'green' if metrics['weighted_risk'] < 0.4 else ('red' if metrics['weighted_risk'] > 0.6 else 'amber')
+def render_sidebar():
+    """Render sidebar with all controls"""
+    with st.sidebar:
+        st.markdown("""
+        <div style="text-align: center; padding: 1rem 0; margin-bottom: 1rem;">
+            <div style="font-size: 1.75rem; font-weight: 800; color: #FFC300;">AVASTHA</div>
+            <div style="color: #888888; font-size: 0.75rem; margin-top: 0.25rem;">Market Regime Detection</div>
+        </div>
+        """, unsafe_allow_html=True)
+        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
         
+        # Universe Selection
+        st.markdown('<div class="sidebar-title">🎯 Universe Selection</div>', unsafe_allow_html=True)
+        universe_type = st.selectbox(
+            "Analysis Universe",
+            UNIVERSE_OPTIONS,
+            help="Choose the stock/ETF universe for regime analysis"
+        )
+        
+        selected_index = None
+        if universe_type == "Index Constituents":
+            selected_index = st.selectbox(
+                "Select Index",
+                INDEX_LIST,
+                index=INDEX_LIST.index("NIFTY 500"),
+                help="Select the index for constituent analysis"
+            )
+        
+        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+        
+        # Analysis Type
+        st.markdown('<div class="sidebar-title">📊 Analysis Type</div>', unsafe_allow_html=True)
+        analysis_mode = st.radio(
+            "Select Mode",
+            ["📅 Single Day", "📈 Time Series"],
+            label_visibility="collapsed",
+            help="Single Day: Analyze one date | Time Series: Track regime over a date range"
+        )
+        
+        # Date Selection
+        single_date = None
+        start_date = None
+        end_date = None
+        
+        if "Single" in analysis_mode:
+            st.markdown('<div class="sidebar-title">📅 Analysis Date</div>', unsafe_allow_html=True)
+            single_date = st.date_input(
+                "Select Date",
+                dt.date.today() - timedelta(days=1),
+                max_value=dt.date.today(),
+                help="Select the date for regime analysis"
+            )
+        else:
+            st.markdown('<div class="sidebar-title">📅 Date Range</div>', unsafe_allow_html=True)
+            col_d1, col_d2 = st.columns(2)
+            with col_d1:
+                start_date = st.date_input(
+                    "Start Date",
+                    dt.date.today() - timedelta(days=60),
+                    max_value=dt.date.today(),
+                    help="Start of analysis period"
+                )
+            with col_d2:
+                end_date = st.date_input(
+                    "End Date",
+                    dt.date.today() - timedelta(days=1),
+                    max_value=dt.date.today(),
+                    help="End of analysis period"
+                )
+        
+        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+        
+        # Run Button
+        run_analysis = st.button("◈ RUN ANALYSIS", type="primary", use_container_width=True)
+        
+        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+        
+        # Info
         st.markdown(f"""
-        <div class="metric-grid metric-grid-6">
-            <div class="metric-card"><div class="label">Universe</div><div class="value primary">{metrics['total']}</div><div class="subtext">Symbols</div></div>
-            <div class="metric-card"><div class="label">Bullish</div><div class="value green">{metrics['bullish_count']}</div><div class="subtext">{metrics['bullish_pct']*100:.0f}%</div></div>
-            <div class="metric-card"><div class="label">Bearish</div><div class="value red">{metrics['bearish_count']}</div><div class="subtext">{metrics['bearish_pct']*100:.0f}%</div></div>
-            <div class="metric-card"><div class="label">Mean Osc</div><div class="value {osc_class}">{metrics['osc_mean']:+.1f}</div><div class="subtext">σ={metrics['osc_std']:.1f}</div></div>
-            <div class="metric-card"><div class="label">Avg Exposure</div><div class="value {exp_class}">{metrics['avg_exposure']*100:.0f}%</div><div class="subtext">Recommended</div></div>
-            <div class="metric-card"><div class="label">Risk Score</div><div class="value {risk_class}">{metrics['weighted_risk']*100:.0f}</div><div class="subtext">Weighted</div></div>
+        <div class='info-box'>
+            <p style='font-size: 0.8rem; margin: 0; color: var(--text-muted); line-height: 1.5;'>
+                <strong>Version:</strong> {VERSION}<br>
+                <strong>Engine:</strong> Multi-Factor Analysis<br>
+                <strong>Data:</strong> yfinance Live
+            </p>
         </div>
         """, unsafe_allow_html=True)
         
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown('<div class="chart-container"><div class="chart-title">Regime Distribution</div></div>', unsafe_allow_html=True)
-            st.plotly_chart(create_regime_donut(df), width='stretch')
-        with col2:
-            st.markdown('<div class="chart-container"><div class="chart-title">Oscillator Distribution</div></div>', unsafe_allow_html=True)
-            st.plotly_chart(create_oscillator_histogram(df), width='stretch')
-        
-        if insights:
-            st.markdown('<div class="section-title">💡 Insights</div>', unsafe_allow_html=True)
-            st.markdown('<div class="insight-grid">' + ''.join([f'<div class="insight-card"><div class="title">{"🟢" if i["type"]=="bullish" else "🔴" if i["type"]=="bearish" else "⚠️"} {i["title"]}</div><div class="text">{i["text"]}</div></div>' for i in insights]) + '</div>', unsafe_allow_html=True)
-    
-    # === RISK TAB ===
-    with tabs[1]:
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown('<div class="chart-container"><div class="chart-title">Universe Risk</div></div>', unsafe_allow_html=True)
-            st.plotly_chart(create_risk_gauge(metrics['weighted_risk']), width='stretch')
-        with col2:
-            st.markdown('<div class="chart-container"><div class="chart-title">Market Breadth</div></div>', unsafe_allow_html=True)
-            st.plotly_chart(create_breadth_bars(metrics), width='stretch')
-        
-        st.markdown('<div class="chart-container"><div class="chart-title">Oscillator vs Exposure</div></div>', unsafe_allow_html=True)
-        st.plotly_chart(create_scatter_plot(df), width='stretch')
-    
-    # === SECTORS TAB ===
-    with tabs[2]:
-        if 'Category' in df.columns and universe == "ETF Universe":
-            st.markdown('<div class="chart-container"><div class="chart-title">Sector × Regime Heatmap</div></div>', unsafe_allow_html=True)
-            fig = create_sector_heatmap(df)
-            if fig: st.plotly_chart(fig, width='stretch')
-            
-            st.markdown('<div class="section-title">Sector Statistics</div>', unsafe_allow_html=True)
-            stats = get_sector_analysis(df)
-            if stats is not None:
-                stats['Osc Mean'] = stats['Osc Mean'].apply(lambda x: f"{x:+.1f}")
-                stats['Avg Exposure'] = stats['Avg Exposure'].apply(lambda x: f"{x*100:.0f}%")
-                stats['Bullish %'] = stats['Bullish %'].apply(lambda x: f"{x*100:.0f}%")
-                st.dataframe(stats, hide_index=True, width='stretch')
-        else:
-            st.info("Sector view available for ETF Universe only.")
-    
-    # === SCREENER TAB ===
-    with tabs[3]:
-        st.markdown('<div class="section-title">Filters</div>', unsafe_allow_html=True)
-        
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            f_regime = st.multiselect("Regime", df['Regime'].unique().tolist(), placeholder="All")
-        with col2:
-            f_mom = st.multiselect("Momentum", df['Momentum'].unique().tolist(), placeholder="All")
-        with col3:
-            f_trend = st.multiselect("Trend", df['Trend'].unique().tolist(), placeholder="All")
-        with col4:
-            f_vol = st.multiselect("Volatility", df['Volatility'].unique().tolist(), placeholder="All")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            osc_range = st.slider("Oscillator", -100, 100, (-100, 100))
-        with col2:
-            exp_range = st.slider("Exposure %", 0, 150, (0, 150))
-        
-        fdf = df.copy()
-        if f_regime: fdf = fdf[fdf['Regime'].isin(f_regime)]
-        if f_mom: fdf = fdf[fdf['Momentum'].isin(f_mom)]
-        if f_trend: fdf = fdf[fdf['Trend'].isin(f_trend)]
-        if f_vol: fdf = fdf[fdf['Volatility'].isin(f_vol)]
-        fdf = fdf[(fdf['Oscillator'] >= osc_range[0]) & (fdf['Oscillator'] <= osc_range[1])]
-        fdf = fdf[(fdf['Exposure'] * 100 >= exp_range[0]) & (fdf['Exposure'] * 100 <= exp_range[1])]
-        
-        st.markdown(f'<div class="section-title">Results ({len(fdf)})</div>', unsafe_allow_html=True)
-        
-        col1, col2 = st.columns([1, 5])
-        with col1:
-            sort_by = st.selectbox("Sort", ["Oscillator", "Confidence", "Exposure", "Risk", "Change"])
-            asc = st.checkbox("Asc", value=False)
-        
-        disp = fdf.sort_values(sort_by, ascending=asc).copy()
-        disp['Confidence'] = disp['Confidence'].apply(lambda x: f"{x*100:.0f}%")
-        disp['Oscillator'] = disp['Oscillator'].apply(lambda x: f"{x:+.1f}")
-        disp['Exposure'] = disp['Exposure'].apply(lambda x: f"{x*100:.0f}%")
-        disp['Risk'] = disp['Risk'].apply(lambda x: f"{x:.0f}")
-        disp['Price'] = disp['Price'].apply(lambda x: f"₹{x:,.2f}")
-        disp['Change'] = disp['Change'].apply(lambda x: f"{x:+.2f}%")
-        
-        st.dataframe(disp[['Symbol', 'Name', 'Regime', 'Confidence', 'Oscillator', 'Exposure', 'Volatility', 'Momentum', 'Trend', 'Risk', 'Price', 'Change']], hide_index=True, width='stretch')
-        
-        csv = fdf.to_csv(index=False)
-        st.download_button("📥 Download CSV", csv, f"avastha_{datetime.now().strftime('%Y%m%d')}.csv", "text/csv", use_container_width=True)
-    
-    # === DRILL-DOWN TAB ===
-    with tabs[4]:
-        st.markdown('<div class="section-title">Symbol Analysis</div>', unsafe_allow_html=True)
-        
-        sel = st.selectbox("Select Symbol", df['Symbol'].tolist(), format_func=lambda x: f"{x} - {ETF_DISPLAY_NAMES.get(x, x.replace('.NS', ''))}")
-        
-        if sel:
-            with st.spinner(f"Loading {sel}..."):
-                prices = fetch_price_data(sel, period="1y")
-                
-                if prices is not None and len(prices) >= 100:
-                    engine = MarketRegimeEngine()
-                    signal = engine.detect_regime(prices)
-                    regime_color = REGIME_COLORS.get(signal.primary_regime, '#6b7280')
-                    
-                    osc_class = 'green' if signal.composite_oscillator > 0 else 'red'
-                    exp_class = 'green' if signal.recommended_exposure >= 0.7 else ('amber' if signal.recommended_exposure >= 0.4 else 'red')
-                    
-                    st.markdown(f"""
-                    <div class="metric-grid metric-grid-4">
-                        <div class="metric-card accent" style="border-top-color: {regime_color};">
-                            <div class="label">Regime</div>
-                            <div class="value" style="color: {regime_color}; font-size: 1.1rem;">{signal.primary_regime.value}</div>
-                        </div>
-                        <div class="metric-card"><div class="label">Oscillator</div><div class="value {osc_class}">{signal.composite_oscillator:+.1f}</div></div>
-                        <div class="metric-card"><div class="label">Exposure</div><div class="value {exp_class}">{signal.recommended_exposure*100:.0f}%</div></div>
-                        <div class="metric-card"><div class="label">Risk</div><div class="value">{signal.risk_score:.0f}</div></div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                    fig = create_price_chart(prices, signal, sel)
-                    st.plotly_chart(fig, width='stretch')
+        return universe_type, selected_index, analysis_mode, single_date, start_date, end_date, run_analysis
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# MAIN
-# ═══════════════════════════════════════════════════════════════════════════════
+def render_header():
+    """Render main header"""
+    st.markdown(f"""
+    <div class="premium-header">
+        <div class="product-badge">A Pragyam Product</div>
+        <h1>{APP_TITLE} : {APP_SUBTITLE}</h1>
+        <div class="tagline">Institutional-grade regime detection using multi-factor analysis</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def run_home_page():
+    """Render landing/home page"""
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Feature cards
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown("""
+        <div class='metric-card primary' style='min-height: 260px;'>
+            <h3 style='color: var(--primary-color); margin-bottom: 1rem;'>🎯 Multi-Factor Analysis</h3>
+            <p style='color: var(--text-muted); font-size: 0.9rem; line-height: 1.6;'>
+                7 analysis factors combine to determine market regime with weighted scoring.
+            </p>
+            <br>
+            <p style='color: var(--text-secondary); font-size: 0.85rem;'>
+                <strong>Factors:</strong><br>
+                • Momentum (30%)<br>
+                • Trend (25%)<br>
+                • Breadth (15%)<br>
+                • Velocity (15%)
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown("""
+        <div class='metric-card success' style='min-height: 260px;'>
+            <h3 style='color: var(--success-green); margin-bottom: 1rem;'>📊 7 Regime Types</h3>
+            <p style='color: var(--text-muted); font-size: 0.9rem; line-height: 1.6;'>
+                From CRISIS to STRONG_BULL with suggested portfolio positioning for each.
+            </p>
+            <br>
+            <p style='color: var(--text-secondary); font-size: 0.85rem;'>
+                <strong>Classifications:</strong><br>
+                • 🐂 Bull Market Mix<br>
+                • 📊 Chop/Consolidation Mix<br>
+                • 🐻 Bear Market Mix
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col3:
+        st.markdown("""
+        <div class='metric-card info' style='min-height: 260px;'>
+            <h3 style='color: var(--info-cyan); margin-bottom: 1rem;'>📈 Flexible Analysis</h3>
+            <p style='color: var(--text-muted); font-size: 0.9rem; line-height: 1.6;'>
+                Single Day or Time Series analysis across multiple universes.
+            </p>
+            <br>
+            <p style='color: var(--text-secondary); font-size: 0.85rem;'>
+                <strong>Universes:</strong><br>
+                • ETF Universe (28 ETFs)<br>
+                • F&O Stocks (~200+)<br>
+                • Index Constituents
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Getting started
+    st.markdown("""
+    <div class='info-box'>
+        <h4>🚀 Getting Started</h4>
+        <p style='color: var(--text-muted); line-height: 1.7;'>
+            Select your analysis <strong>Universe</strong> and <strong>Analysis Type</strong> from the sidebar, 
+            then click <strong>RUN ANALYSIS</strong> to detect the current market regime.
+            The system will analyze multiple factors across your selected universe to determine
+            whether the market is in a bullish, bearish, or choppy state.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
 
 def main():
-    mode, symbol, universe, index_name = render_sidebar()
+    """Main application entry point"""
     
-    if "Individual" in mode:
-        if symbol: run_individual_mode(symbol)
-        else: st.info("Enter a symbol in the sidebar.")
+    # Render sidebar and get controls
+    universe_type, selected_index, analysis_mode, single_date, start_date, end_date, run_analysis = render_sidebar()
+    
+    # Render header
+    render_header()
+    
+    # Run analysis if button clicked
+    if run_analysis:
+        # Initialize engine
+        engine = MarketDataEngine()
+        detector = MarketRegimeDetector()
+        
+        # Set universe
+        progress = st.progress(0, text="Initializing...")
+        universe_msg = engine.set_universe(universe_type, selected_index)
+        st.toast(universe_msg, icon="✓" if "✓" in universe_msg else "⚠️")
+        
+        if "Single" in analysis_mode:
+            # Single Day Analysis
+            analysis_dt = datetime.combine(single_date, datetime.min.time())
+            
+            def update_progress(p, msg):
+                progress.progress(p, text=msg)
+            
+            try:
+                historical_data = engine.get_regime_data(analysis_dt, progress_callback=update_progress)
+                
+                if not historical_data:
+                    st.error("Failed to fetch market data. Please check your date and try again.")
+                    progress.empty()
+                    return
+                
+                result = detector.detect(historical_data)
+                
+                progress.empty()
+                st.session_state.regime_result = result
+                st.session_state.time_series_results = None
+                
+                st.success("✅ Regime analysis completed!")
+                
+            except Exception as e:
+                progress.empty()
+                st.error(f"Analysis failed: {str(e)}")
+                logging.error(f"Analysis error: {e}", exc_info=True)
+                return
+        
+        else:
+            # Time Series Analysis
+            start_dt = datetime.combine(start_date, datetime.min.time())
+            end_dt = datetime.combine(end_date, datetime.min.time())
+            
+            def update_progress(p, msg):
+                progress.progress(p * 0.7, text=msg)
+            
+            try:
+                historical_data = engine.get_time_series_regime_data(start_dt, end_dt, progress_callback=update_progress)
+                
+                if not historical_data:
+                    st.error("Failed to fetch market data. Please check your dates and try again.")
+                    progress.empty()
+                    return
+                
+                # Run regime detection for each day
+                ts_results = []
+                total_days = len(historical_data)
+                
+                for i in range(10, len(historical_data)):
+                    window = historical_data[i-10:i+1]
+                    result = detector.detect(window)
+                    
+                    ts_results.append({
+                        'date': historical_data[i][0],
+                        'regime': result.regime_name,
+                        'score': result.composite_score,
+                        'confidence': result.confidence,
+                        'mix': result.suggested_mix
+                    })
+                    
+                    if i % 5 == 0:
+                        progress.progress(0.7 + 0.3 * (i / total_days), text=f"Analyzing day {i-9}/{total_days-10}...")
+                
+                progress.empty()
+                st.session_state.time_series_results = ts_results
+                st.session_state.regime_result = None
+                
+                st.success(f"✅ Time series analysis completed! ({len(ts_results)} days analyzed)")
+                
+            except Exception as e:
+                progress.empty()
+                st.error(f"Analysis failed: {str(e)}")
+                logging.error(f"Analysis error: {e}", exc_info=True)
+                return
+    
+    # Display results
+    if st.session_state.regime_result is not None:
+        display_single_day_result(st.session_state.regime_result)
+    elif st.session_state.time_series_results is not None:
+        display_time_series_results(st.session_state.time_series_results)
     else:
-        run_index_mode(universe, index_name)
+        run_home_page()
+    
+    # Footer
+    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+    st.caption(f"© {datetime.now().year} AVASTHA | Hemrek Capital | {VERSION}")
+
 
 if __name__ == "__main__":
     main()

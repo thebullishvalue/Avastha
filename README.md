@@ -1,133 +1,182 @@
-# 🔮 AVASTHA (आवस्था) - Market Regime Detection System
+# ◈ AVASTHA - Market Regime Detection System
 
-**Version 2.0.0** | Part of the Quantitative Analysis Suite alongside Pragyam and UMA
+**A Pragyam Product Family Member**
 
-A hedge-fund grade multi-model market regime detection system that synthesizes 6 independent detectors into a unified market state classification.
+**Version:** 1.0.0  
+**Author:** Hemrek Capital
 
 ---
 
-## Quick Start
+## Overview
+
+AVASTHA (अवस्था - Sanskrit for "state/condition") is an institutional-grade market regime detection system that uses multi-factor analysis to classify current market conditions. It analyzes momentum, trend, breadth, volatility, and statistical extremes across your chosen universe to determine whether the market is in a bullish, bearish, or consolidation state.
+
+## Features
+
+### 🎯 Multi-Factor Analysis
+- **7 Analysis Factors** with weighted scoring
+- Momentum (30%), Trend (25%), Breadth (15%), Velocity (15%), Extremes (10%), Volatility (5%)
+
+### 📊 7 Regime Classifications
+| Regime | Score Range | Suggested Mix |
+|--------|-------------|---------------|
+| STRONG_BULL | ≥ 1.5 | 🐂 Bull Market Mix |
+| BULL | ≥ 1.0 | 🐂 Bull Market Mix |
+| WEAK_BULL | ≥ 0.5 | 📊 Chop/Consolidation Mix |
+| CHOP | ≥ 0.1 | 📊 Chop/Consolidation Mix |
+| WEAK_BEAR | ≥ -0.1 | 📊 Chop/Consolidation Mix |
+| BEAR | ≥ -0.5 | 🐻 Bear Market Mix |
+| CRISIS | < -0.5 | 🐻 Bear Market Mix |
+
+### 🌐 Multiple Universes
+- **ETF Universe**: 28 curated sectoral and thematic ETFs
+- **F&O Stocks**: ~200+ Futures & Options eligible stocks (requires nsepython)
+- **Index Constituents**: 16 NSE indices including NIFTY 50, 100, 200, 500, sectoral indices
+
+### 📈 Analysis Modes
+- **Single Day**: Analyze regime for a specific date
+- **Time Series**: Track regime evolution over a date range
+
+## Installation
 
 ```bash
+# Clone or download the system
+cd avastha
+
+# Install dependencies
 pip install -r requirements.txt
+
+# Optional: For F&O Stock Universe
+pip install nsepython
+
+# Run the application
 streamlit run app.py
 ```
 
----
+## Usage
 
-## Analysis Modes
+1. **Select Universe**: Choose ETF Universe, F&O Stocks, or Index Constituents
+2. **Select Analysis Type**: Single Day or Time Series
+3. **Set Date(s)**: Choose analysis date or date range
+4. **Run Analysis**: Click "RUN ANALYSIS" to execute
 
-### 📈 Individual Scrip
-Deep-dive analysis of any single symbol with full regime breakdown, price chart, and oscillator visualization.
+## File Structure
 
-### 📊 Index Universe
-Screen entire universes with comprehensive analysis dashboard:
-
-| Universe | Description |
-|----------|-------------|
-| **ETF Universe** | 30 curated ETFs across 9 sectors |
-| **F&O Stocks** | NSE Futures & Options (~200 stocks) |
-| **Index Constituents** | 16 NSE indices (NIFTY 50, 500, BANK, etc.) |
-
----
-
-## Dashboard Tabs (Index Mode)
-
-| Tab | Features |
-|-----|----------|
-| **Overview** | 6 key metrics, regime donut, oscillator histogram, actionable insights |
-| **Risk** | Risk gauge, breadth bars, oscillator vs exposure scatter |
-| **Sectors** | Sector × Regime heatmap, sector statistics (ETF only) |
-| **Screener** | Multi-filter (regime, momentum, trend, vol), range sliders, CSV export |
-| **Drill-Down** | Select any symbol for detailed individual analysis |
-
----
-
-## Regime Classifications
-
-| Regime | Description | Typical Exposure |
-|--------|-------------|------------------|
-| CRISIS | Extreme bearish, high volatility | 20% |
-| BEAR_ACCELERATION | Downtrend gaining momentum | 30% |
-| BEAR_DECELERATION | Downtrend losing steam | 50% |
-| ACCUMULATION | Sideways, smart money buying | 70% |
-| EARLY_BULL | New uptrend emerging | 100% |
-| BULL_TREND | Established uptrend | 120% |
-| BULL_EUPHORIA | Overbought, excessive optimism | 80% |
-| DISTRIBUTION | Topping pattern | 50% |
-| CHOP | Rangebound, no direction | 60% |
-| TRANSITION | Regime change in progress | 50% |
-
----
-
-## Detection Engine
-
-6 independent detectors synthesized:
-
-1. **Volatility** - GARCH-inspired clustering, percentile ranking
-2. **Momentum** - RSI, MACD, ROC, divergence detection
-3. **Trend** - Multi-TF MA alignment, ADX-style strength
-4. **Risk** - VaR, CVaR, drawdown, Sortino
-5. **HMM State** - Gaussian Mixture Model clustering
-6. **Structural Break** - Change-point detection
-
----
-
-## Key Metrics
-
-| Metric | Description |
-|--------|-------------|
-| **Composite Oscillator** | Single signal from -100 to +100 |
-| **Recommended Exposure** | Position sizing guidance (0-150%) |
-| **Weighted Risk Score** | Confidence-weighted regime risk |
-| **Breadth** | Bullish vs Bearish ratio |
-
----
-
-## ETF Universe (30 Symbols)
-
-**Broad Market:** NIFTY 50, 100, 500, Top 50  
-**Market Cap:** Midcap, Smallcap 250  
-**Banking:** Financials, Private Banks, PSU Banks, Insurance  
-**Technology:** IT, MNC  
-**Consumer:** FMCG, Consumption, Auto, EV India  
-**Healthcare:** Healthcare  
-**Industrial:** Infrastructure, CPSE, Make in India, Defence, Realty, TN Infra, Power  
-**Materials:** Metal, Oil & Gas, Chemicals  
-**Commodities:** Gold, Silver, Commodities  
-
----
-
-## Programmatic Usage
-
-```python
-from avastha_engine import MarketRegimeEngine
-import yfinance as yf
-
-# Fetch data
-prices = yf.Ticker("RELIANCE.NS").history(period="1y")['Close']
-
-# Detect regime
-engine = MarketRegimeEngine()
-signal = engine.detect_regime(prices)
-
-print(f"Regime: {signal.primary_regime.value}")
-print(f"Confidence: {signal.primary_confidence*100:.0f}%")
-print(f"Oscillator: {signal.composite_oscillator:+.1f}")
-print(f"Exposure: {signal.recommended_exposure*100:.0f}%")
+```
+avastha/
+├── app.py              # Main Streamlit application (Pragyam Design System)
+├── regime_detector.py  # Core regime detection engine
+├── data_engine.py      # Data fetching with universe support
+├── requirements.txt    # Python dependencies
+└── README.md           # Documentation
 ```
 
+## Analysis Factors
+
+### 1. Momentum (30%)
+- RSI trend and current value analysis
+- Liquidity Oscillator trend analysis
+- Classifications: STRONG_BULLISH → STRONG_BEARISH
+
+### 2. Trend (25%)
+- Price position relative to 200 DMA
+- Moving average alignment (90 DMA vs 200 DMA)
+- Trend consistency measurement
+- Classifications: STRONG_UPTREND → STRONG_DOWNTREND
+
+### 3. Breadth (15%)
+- RSI bullish percentage (> 50)
+- Oscillator positive percentage
+- Divergence detection (narrow vs broad participation)
+- Classifications: STRONG_BROAD → CAPITULATION
+
+### 4. Velocity (15%)
+- Momentum acceleration/deceleration
+- Rate of change analysis
+- Classifications: ACCELERATING_UP → ACCELERATING_DOWN
+
+### 5. Extremes (10%)
+- Z-score extreme analysis
+- Statistical overbought/oversold conditions
+- Classifications: DEEPLY_OVERSOLD → DEEPLY_OVERBOUGHT
+
+### 6. Volatility (5%)
+- Bollinger Band Width analysis
+- Volatility trend direction
+- Classifications: SQUEEZE, NORMAL, ELEVATED, PANIC
+
+## API Reference
+
+### MarketRegimeDetector
+
+```python
+from regime_detector import MarketRegimeDetector, RegimeType
+
+detector = MarketRegimeDetector(min_periods=10)
+result = detector.detect(historical_data)
+
+# Result attributes:
+result.regime          # RegimeType enum
+result.regime_name     # String name (e.g., "BULL")
+result.suggested_mix   # Portfolio mix suggestion
+result.confidence      # 0-1 confidence score
+result.composite_score # -2 to +2 composite factor score
+result.factors         # Dict of FactorAnalysis objects
+result.explanation     # Human-readable explanation
+result.warnings        # List of warning messages
+```
+
+### MarketDataEngine
+
+```python
+from data_engine import MarketDataEngine
+
+engine = MarketDataEngine()
+engine.set_universe("Index Constituents", "NIFTY 500")
+data = engine.get_regime_data(analysis_date, lookback_days=30)
+```
+
+## Design System
+
+AVASTHA uses the **Pragyam Design System** for consistent styling across the product family:
+
+- **Primary Color**: #FFC300 (Gold)
+- **Background**: #0F0F0F (Near Black)
+- **Card Background**: #1A1A1A
+- **Success**: #10b981 (Green)
+- **Danger**: #ef4444 (Red)
+- **Warning**: #f59e0b (Amber)
+- **Font**: Inter
+
+## Product Family
+
+AVASTHA is part of the Pragyam Product Family:
+
+- **Pragyam**: Quantitative Portfolio Curation System
+- **UMA**: Unified Market Analysis (Signal Intelligence)
+- **AVASTHA**: Market Regime Detection System
+
+All products share the same design language and can be used together for comprehensive market analysis.
+
+## Warnings System
+
+AVASTHA generates warnings for:
+- **Breadth Divergence**: Narrow market leadership
+- **Panic Volatility**: Elevated market turbulence
+- **Statistical Extremes**: Overbought/Oversold conditions
+
+## Limitations
+
+- Requires minimum 10 historical periods for analysis
+- Data dependent on yfinance availability
+- F&O universe requires nsepython package
+- Best suited for liquid ETF/stock universe
+- Not a trading recommendation system
+
+## License
+
+Proprietary - Hemrek Capital
+
 ---
 
-## Files
-
-| File | Description |
-|------|-------------|
-| `app.py` | Streamlit dashboard |
-| `avastha_engine.py` | Core detection engine |
-| `examples.py` | Usage examples |
-| `requirements.txt` | Dependencies |
-
----
-
-**License:** MIT
+*Part of the Pragyam Quantitative Systems Family*
