@@ -1,24 +1,21 @@
 """
 AVASTHA - Market Regime Detection System
-A Pragyam Product Family Member
 
 Institutional-grade market regime detection using multi-factor analysis
 across momentum, trend, breadth, volatility, and statistical extremes.
 
-Version: 1.0.0
+Version: 2.0.0
 Author: Hemrek Capital
 """
 
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 import datetime as dt
 import logging
-import time
 
 # Local imports
 from regime_detector import MarketRegimeDetector, RegimeType, RegimeResult
@@ -28,6 +25,7 @@ from data_engine import (
     UNIVERSE_OPTIONS, 
     INDEX_LIST, 
     ETF_UNIVERSE,
+    ETF_NAMES,
     get_display_name
 )
 
@@ -35,7 +33,7 @@ from data_engine import (
 # CONFIGURATION
 # ══════════════════════════════════════════════════════════════════════════════
 
-VERSION = "v1.0.0"
+VERSION = "v2.0.0"
 APP_TITLE = "AVASTHA"
 APP_SUBTITLE = "Market Regime Detection System"
 
@@ -47,7 +45,7 @@ st.set_page_config(
 )
 
 # ══════════════════════════════════════════════════════════════════════════════
-# PRAGYAM DESIGN SYSTEM CSS
+# DESIGN SYSTEM CSS
 # ══════════════════════════════════════════════════════════════════════════════
 
 st.markdown("""
@@ -169,29 +167,7 @@ st.markdown("""
     .metric-card.neutral h2 { color: var(--neutral); }
     .metric-card.primary h2 { color: var(--primary-color); }
     
-    .regime-card {
-        background-color: var(--bg-card);
-        padding: 1.5rem;
-        border-radius: 12px;
-        border: 1px solid var(--border-color);
-        box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.08);
-        margin-bottom: 1rem;
-        position: relative;
-        overflow: hidden;
-    }
-    
-    .regime-card::before { content: ''; position: absolute; top: 0; left: 0; width: 4px; height: 100%; }
-    .regime-card.bull::before { background: var(--success-green); }
-    .regime-card.bear::before { background: var(--danger-red); }
-    .regime-card.chop::before { background: var(--warning-amber); }
-    
-    .status-badge { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.8rem; border-radius: 20px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
-    .status-badge.bull { background: rgba(16, 185, 129, 0.15); color: var(--success-green); border: 1px solid rgba(16, 185, 129, 0.3); }
-    .status-badge.bear { background: rgba(239, 68, 68, 0.15); color: var(--danger-red); border: 1px solid rgba(239, 68, 68, 0.3); }
-    .status-badge.chop { background: rgba(245, 158, 11, 0.15); color: var(--warning-amber); border: 1px solid rgba(245, 158, 11, 0.3); }
-    .status-badge.neutral { background: rgba(136, 136, 136, 0.15); color: var(--neutral); border: 1px solid rgba(136, 136, 136, 0.3); }
-    
-    .info-box { background: var(--secondary-background-color); border: 1px solid var(--border-color); border-left: 0px solid var(--primary-color); padding: 1.25rem; border-radius: 12px; margin: 0.5rem 0; box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.08); }
+    .info-box { background: var(--secondary-background-color); border: 1px solid var(--border-color); padding: 1.25rem; border-radius: 12px; margin: 0.5rem 0; box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.08); }
     .info-box h4 { color: var(--primary-color); margin: 0 0 0.5rem 0; font-size: 1rem; font-weight: 700; }
     .info-box p { color: var(--text-muted); margin: 0; font-size: 0.9rem; line-height: 1.6; }
     
@@ -199,10 +175,9 @@ st.markdown("""
     
     .stButton>button { border: 2px solid var(--primary-color); background: transparent; color: var(--primary-color); font-weight: 700; border-radius: 12px; padding: 0.75rem 2rem; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); text-transform: uppercase; letter-spacing: 0.5px; }
     .stButton>button:hover { box-shadow: 0 0 25px rgba(var(--primary-rgb), 0.6); background: var(--primary-color); color: #1A1A1A; transform: translateY(-2px); }
-    .stButton>button:active { transform: translateY(0); }
     
     .stTabs [data-baseweb="tab-list"] { gap: 24px; background: transparent; }
-    .stTabs [data-baseweb="tab"] { color: var(--text-muted); border-bottom: 2px solid transparent; transition: color 0.3s, border-bottom 0.3s; background: transparent; font-weight: 600; }
+    .stTabs [data-baseweb="tab"] { color: var(--text-muted); border-bottom: 2px solid transparent; background: transparent; font-weight: 600; }
     .stTabs [aria-selected="true"] { color: var(--primary-color); border-bottom: 2px solid var(--primary-color); background: transparent !important; }
     
     .stPlotlyChart { border-radius: 12px; background-color: var(--secondary-background-color); padding: 10px; border: 1px solid var(--border-color); box-shadow: 0 0 25px rgba(var(--primary-rgb), 0.1); }
@@ -231,6 +206,8 @@ if 'historical_data' not in st.session_state:
     st.session_state.historical_data = None
 if 'time_series_results' not in st.session_state:
     st.session_state.time_series_results = None
+if 'latest_df' not in st.session_state:
+    st.session_state.latest_df = None
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -238,123 +215,222 @@ if 'time_series_results' not in st.session_state:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def get_regime_color_class(regime: RegimeType) -> str:
-    """Get CSS class for regime coloring"""
     bull_regimes = [RegimeType.STRONG_BULL, RegimeType.BULL]
     bear_regimes = [RegimeType.BEAR, RegimeType.CRISIS]
-    
     if regime in bull_regimes:
         return "bull"
     elif regime in bear_regimes:
         return "bear"
-    else:
-        return "chop"
+    return "chop"
 
 
-def get_regime_color(regime: RegimeType) -> str:
-    """Get hex color for regime"""
-    bull_regimes = [RegimeType.STRONG_BULL, RegimeType.BULL]
-    bear_regimes = [RegimeType.BEAR, RegimeType.CRISIS]
-    
-    if regime in bull_regimes:
+def get_regime_color(regime_name: str) -> str:
+    if regime_name in ['STRONG_BULL', 'BULL']:
         return "#10b981"
-    elif regime in bear_regimes:
+    elif regime_name in ['BEAR', 'CRISIS']:
         return "#ef4444"
+    return "#f59e0b"
+
+
+def get_score_color(score: float) -> str:
+    if score >= 0.5:
+        return "#10b981"
+    elif score <= -0.5:
+        return "#ef4444"
+    return "#f59e0b"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# INTERACTIVE CHART FUNCTIONS
+# ══════════════════════════════════════════════════════════════════════════════
+
+def create_regime_gauge(score: float, confidence: float) -> go.Figure:
+    """Create gauge chart for regime strength"""
+    gauge_value = (score + 2) / 4 * 100
+    
+    if score >= 0.5:
+        color = "#10b981"
+        regime_text = "BULLISH"
+    elif score <= -0.5:
+        color = "#ef4444"
+        regime_text = "BEARISH"
     else:
-        return "#f59e0b"
+        color = "#f59e0b"
+        regime_text = "NEUTRAL"
+    
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number+delta",
+        value=gauge_value,
+        number=dict(font=dict(size=36, color=color, family='Inter'), suffix="%"),
+        delta=dict(reference=50, valueformat=".0f", increasing=dict(color="#10b981"), decreasing=dict(color="#ef4444")),
+        gauge=dict(
+            axis=dict(range=[0, 100], tickwidth=1, tickcolor='#3A3A3A', tickvals=[0, 25, 50, 75, 100], tickfont=dict(size=10, color='#888888')),
+            bar=dict(color=color, thickness=0.3),
+            bgcolor='#1A1A1A',
+            borderwidth=2,
+            bordercolor='#2A2A2A',
+            steps=[
+                dict(range=[0, 25], color='rgba(239,68,68,0.15)'),
+                dict(range=[25, 50], color='rgba(245,158,11,0.1)'),
+                dict(range=[50, 75], color='rgba(245,158,11,0.1)'),
+                dict(range=[75, 100], color='rgba(16,185,129,0.15)')
+            ],
+            threshold=dict(line=dict(color='white', width=2), thickness=0.8, value=gauge_value)
+        )
+    ))
+    
+    fig.update_layout(
+        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+        height=250, margin=dict(l=20, r=20, t=40, b=20),
+        font=dict(family='Inter', color='#EAEAEA'),
+        annotations=[dict(text=f"<b>{regime_text}</b><br>Confidence: {confidence:.0%}", x=0.5, y=-0.1, showarrow=False, font=dict(size=12, color='#888888'))]
+    )
+    return fig
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# CHART FUNCTIONS
-# ══════════════════════════════════════════════════════════════════════════════
 
 def create_composite_score_chart(score: float) -> go.Figure:
-    """Create visualization for composite regime score"""
+    """Create visualization for composite regime score position"""
     fig = go.Figure()
     
     # Background bar
-    fig.add_trace(go.Bar(
-        x=[4], y=['Score'], orientation='h',
-        marker=dict(color=['rgba(50,50,50,0.5)']),
-        showlegend=False, hoverinfo='none'
-    ))
+    fig.add_trace(go.Bar(x=[4], y=['Score'], orientation='h', marker=dict(color=['rgba(50,50,50,0.5)']), showlegend=False, hoverinfo='none'))
     
     # Score indicator
-    normalized_score = score + 2  # Shift to 0-4 range
-    color = "#10b981" if score >= 0.5 else "#ef4444" if score <= -0.5 else "#f59e0b"
+    normalized_score = score + 2
+    color = get_score_color(score)
     
     fig.add_trace(go.Scatter(
-        x=[normalized_score], y=['Score'],
-        mode='markers',
+        x=[normalized_score], y=['Score'], mode='markers',
         marker=dict(size=25, color=color, symbol='diamond', line=dict(width=2, color='white')),
-        showlegend=False,
-        hovertemplate=f"<b>Composite Score:</b> {score:.2f}<extra></extra>"
+        showlegend=False, hovertemplate=f"<b>Composite Score:</b> {score:.2f}<extra></extra>"
     ))
     
-    # Regime zone backgrounds
-    zones = [
-        (0, 0.5, '#ef4444'), (0.5, 1.5, '#f87171'), (1.5, 1.9, '#fbbf24'),
-        (1.9, 2.1, '#888888'), (2.1, 2.5, '#86efac'), (2.5, 3.0, '#34d399'), (3.0, 4.0, '#10b981')
-    ]
-    
+    zones = [(0, 0.5, '#ef4444'), (0.5, 1.5, '#f87171'), (1.5, 1.9, '#fbbf24'), (1.9, 2.1, '#888888'), (2.1, 2.5, '#86efac'), (2.5, 3.0, '#34d399'), (3.0, 4.0, '#10b981')]
     for start, end, zone_color in zones:
         fig.add_vrect(x0=start, x1=end, fillcolor=zone_color, opacity=0.15, line_width=0)
     
     fig.update_layout(
-        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-        font={'color': '#EAEAEA'}, height=100,
+        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font={'color': '#EAEAEA'}, height=100,
         margin=dict(l=10, r=10, t=10, b=30),
-        xaxis=dict(
-            range=[0, 4],
-            tickvals=[0.25, 1, 1.7, 2, 2.3, 2.75, 3.5],
-            ticktext=['Crisis', 'Bear', 'W.Bear', 'Chop', 'W.Bull', 'Bull', 'S.Bull'],
-            tickfont=dict(size=10), showgrid=False
-        ),
+        xaxis=dict(range=[0, 4], tickvals=[0.25, 1, 1.7, 2, 2.3, 2.75, 3.5], ticktext=['Crisis', 'Bear', 'W.Bear', 'Chop', 'W.Bull', 'Bull', 'S.Bull'], tickfont=dict(size=10), showgrid=False),
         yaxis=dict(visible=False)
     )
+    return fig
+
+
+def create_factor_radar_chart(result: RegimeResult) -> go.Figure:
+    """Create radar chart for factor analysis"""
+    factors = result.factors
+    categories = [f.name.upper() for f in factors.values()]
+    values = [(f.score + 2) / 4 * 100 for f in factors.values()]
+    categories.append(categories[0])
+    values.append(values[0])
     
+    fig = go.Figure()
+    fig.add_trace(go.Scatterpolar(
+        r=values, theta=categories, fill='toself', fillcolor='rgba(255,195,0,0.2)',
+        line=dict(color='#FFC300', width=2), marker=dict(size=8, color='#FFC300'),
+        hovertemplate="<b>%{theta}</b><br>Score: %{r:.1f}%<extra></extra>"
+    ))
+    
+    fig.update_layout(
+        polar=dict(
+            radialaxis=dict(visible=True, range=[0, 100], tickvals=[0, 25, 50, 75, 100], ticktext=['Bear', '', 'Neutral', '', 'Bull'], gridcolor='rgba(42,42,42,0.5)', linecolor='rgba(42,42,42,0.5)', tickfont=dict(size=9, color='#888888')),
+            angularaxis=dict(gridcolor='rgba(42,42,42,0.5)', linecolor='rgba(42,42,42,0.5)', tickfont=dict(size=10, color='#EAEAEA')),
+            bgcolor='#1A1A1A'
+        ),
+        paper_bgcolor='rgba(0,0,0,0)', height=350, margin=dict(l=60, r=60, t=30, b=30),
+        font=dict(family='Inter', color='#EAEAEA'), showlegend=False
+    )
     return fig
 
 
 def create_factor_breakdown_chart(result: RegimeResult) -> go.Figure:
     """Create horizontal bar chart showing factor contributions"""
     factors = result.factors
-    
-    names = []
-    scores = []
-    colors = []
-    
-    for name, factor in factors.items():
-        names.append(name.upper())
-        scores.append(factor.score)
-        if factor.score >= 0.5:
-            colors.append('#10b981')
-        elif factor.score <= -0.5:
-            colors.append('#ef4444')
-        else:
-            colors.append('#f59e0b')
+    names = [name.upper() for name in factors.keys()]
+    scores = [f.score for f in factors.values()]
+    colors = [get_score_color(s) for s in scores]
     
     fig = go.Figure(go.Bar(
-        x=scores, y=names, orientation='h',
-        marker_color=colors,
-        text=[f"{s:+.2f}" for s in scores],
-        textposition='outside',
-        textfont=dict(color='#EAEAEA')
+        x=scores, y=names, orientation='h', marker_color=colors,
+        text=[f"{s:+.2f}" for s in scores], textposition='outside', textfont=dict(color='#EAEAEA'),
+        hovertemplate="<b>%{y}</b><br>Score: %{x:+.2f}<extra></extra>"
     ))
     
     fig.update_layout(
-        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='#1A1A1A',
-        font={'color': '#EAEAEA'}, height=300,
+        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='#1A1A1A', font={'color': '#EAEAEA'}, height=300,
         margin=dict(l=100, r=50, t=30, b=30),
-        xaxis=dict(
-            range=[-2.5, 2.5], zeroline=True, zerolinecolor='#888', zerolinewidth=2,
-            gridcolor='rgba(42,42,42,0.5)', title="Factor Score"
-        ),
+        xaxis=dict(range=[-2.5, 2.5], zeroline=True, zerolinecolor='#888', zerolinewidth=2, gridcolor='rgba(42,42,42,0.5)', title="Factor Score"),
         yaxis=dict(gridcolor='rgba(42,42,42,0.5)')
     )
-    
     fig.add_vline(x=-1, line_dash="dash", line_color="#ef4444", opacity=0.5)
     fig.add_vline(x=1, line_dash="dash", line_color="#10b981", opacity=0.5)
+    return fig
+
+
+def create_breadth_analysis_chart(df: pd.DataFrame) -> go.Figure:
+    """Create breadth analysis visualization"""
+    rsi_bullish = (df['rsi latest'] > 50).sum()
+    rsi_bearish = (df['rsi latest'] < 50).sum()
+    osc_positive = (df['osc latest'] > 0).sum()
+    osc_negative = (df['osc latest'] < 0).sum()
     
+    fig = make_subplots(rows=1, cols=2, specs=[[{"type": "pie"}, {"type": "pie"}]], subplot_titles=("RSI Distribution", "Oscillator Distribution"))
+    
+    fig.add_trace(go.Pie(
+        labels=['Bullish (>50)', 'Bearish (<50)'], values=[rsi_bullish, rsi_bearish], hole=0.5,
+        marker=dict(colors=['#10b981', '#ef4444']), textinfo='percent+label', textfont=dict(size=10, color='white'),
+        hovertemplate="<b>%{label}</b><br>Count: %{value}<br>%{percent}<extra></extra>"
+    ), row=1, col=1)
+    
+    fig.add_trace(go.Pie(
+        labels=['Positive', 'Negative'], values=[osc_positive, osc_negative], hole=0.5,
+        marker=dict(colors=['#10b981', '#ef4444']), textinfo='percent+label', textfont=dict(size=10, color='white'),
+        hovertemplate="<b>%{label}</b><br>Count: %{value}<br>%{percent}<extra></extra>"
+    ), row=1, col=2)
+    
+    fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=300, margin=dict(l=20, r=20, t=40, b=20), font=dict(family='Inter', color='#EAEAEA'), showlegend=False)
+    return fig
+
+
+def create_symbol_heatmap(df: pd.DataFrame) -> go.Figure:
+    """Create heatmap of symbol conditions"""
+    symbols = df['symbol'].tolist()
+    composite_scores = []
+    for _, row in df.iterrows():
+        rsi_score = (row['rsi latest'] - 50) / 25
+        osc_score = row['osc latest'] / 50
+        composite_scores.append((rsi_score + osc_score) / 2)
+    
+    sorted_indices = np.argsort(composite_scores)
+    sorted_symbols = [symbols[i] for i in sorted_indices]
+    sorted_scores = [composite_scores[i] for i in sorted_indices]
+    
+    n_cols = 6
+    n_rows = int(np.ceil(len(sorted_symbols) / n_cols))
+    while len(sorted_symbols) < n_cols * n_rows:
+        sorted_symbols.append("")
+        sorted_scores.append(0)
+    
+    symbols_grid = np.array(sorted_symbols).reshape(n_rows, n_cols)
+    scores_grid = np.array(sorted_scores).reshape(n_rows, n_cols)
+    normalized_scores = (scores_grid + 2) / 4
+    
+    colorscale = [[0, '#ef4444'], [0.25, '#f87171'], [0.5, '#888888'], [0.75, '#34d399'], [1, '#10b981']]
+    
+    fig = go.Figure(data=go.Heatmap(
+        z=normalized_scores,
+        text=[[f"{s}<br>{v:.2f}" if s else "" for s, v in zip(row_s, row_v)] for row_s, row_v in zip(symbols_grid, scores_grid)],
+        texttemplate="%{text}", textfont=dict(size=10, color='white', family='Inter'),
+        colorscale=colorscale, showscale=False, hovertemplate="<b>%{text}</b><extra></extra>", xgap=3, ygap=3
+    ))
+    
+    fig.update_layout(
+        template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=max(200, n_rows * 50),
+        margin=dict(l=0, r=0, t=10, b=10), xaxis=dict(showticklabels=False, showgrid=False, zeroline=False),
+        yaxis=dict(showticklabels=False, showgrid=False, zeroline=False, autorange='reversed'), font=dict(family='Inter')
+    )
     return fig
 
 
@@ -363,51 +439,65 @@ def create_time_series_chart(ts_results: list) -> go.Figure:
     dates = [r['date'] for r in ts_results]
     scores = [r['score'] for r in ts_results]
     regimes = [r['regime'] for r in ts_results]
-    
-    colors = [get_regime_color(RegimeType[r]) for r in regimes]
+    colors = [get_regime_color(r) for r in regimes]
     
     fig = go.Figure()
     
     # Fill areas
+    fig.add_trace(go.Scatter(x=dates, y=[max(0, s) for s in scores], fill='tozeroy', fillcolor='rgba(16,185,129,0.15)', line=dict(width=0), showlegend=False, hoverinfo='skip'))
+    fig.add_trace(go.Scatter(x=dates, y=[min(0, s) for s in scores], fill='tozeroy', fillcolor='rgba(239,68,68,0.15)', line=dict(width=0), showlegend=False, hoverinfo='skip'))
+    
+    # Main line
     fig.add_trace(go.Scatter(
-        x=dates, y=[max(0, s) for s in scores],
-        fill='tozeroy', fillcolor='rgba(16,185,129,0.15)',
-        line=dict(width=0), showlegend=False, hoverinfo='skip'
+        x=dates, y=scores, mode='lines+markers', name='Regime Score',
+        line=dict(color='#FFC300', width=2), marker=dict(size=8, color=colors, line=dict(width=1, color='white')),
+        hovertemplate="<b>%{x|%Y-%m-%d}</b><br>Score: %{y:.2f}<extra></extra>"
     ))
     
-    fig.add_trace(go.Scatter(
-        x=dates, y=[min(0, s) for s in scores],
-        fill='tozeroy', fillcolor='rgba(239,68,68,0.15)',
-        line=dict(width=0), showlegend=False, hoverinfo='skip'
-    ))
-    
-    # Main line with markers
-    fig.add_trace(go.Scatter(
-        x=dates, y=scores,
-        mode='lines+markers',
-        line=dict(color='#FFC300', width=2),
-        marker=dict(size=8, color=colors, line=dict(width=1, color='white')),
-        hovertemplate="<b>%{x}</b><br>Score: %{y:.2f}<extra></extra>"
-    ))
-    
-    # Threshold lines
-    fig.add_hline(y=1.0, line=dict(color='rgba(16,185,129,0.5)', width=1, dash='dash'))
-    fig.add_hline(y=-0.5, line=dict(color='rgba(239,68,68,0.5)', width=1, dash='dash'))
+    fig.add_hline(y=1.0, line=dict(color='rgba(16,185,129,0.5)', width=1, dash='dash'), annotation_text="Bull", annotation_position="right")
+    fig.add_hline(y=-0.5, line=dict(color='rgba(239,68,68,0.5)', width=1, dash='dash'), annotation_text="Bear", annotation_position="right")
     fig.add_hline(y=0, line=dict(color='rgba(255,255,255,0.3)', width=1))
-    
-    # Regime zones
     fig.add_hrect(y0=1.0, y1=2.5, fillcolor='rgba(16,185,129,0.08)', line_width=0)
     fig.add_hrect(y0=-2.5, y1=-0.5, fillcolor='rgba(239,68,68,0.08)', line_width=0)
     
     fig.update_layout(
-        template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='#1A1A1A',
-        height=400, margin=dict(l=10, r=10, t=30, b=50),
-        xaxis=dict(showgrid=True, gridcolor='rgba(42,42,42,0.5)'),
+        template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='#1A1A1A', height=400,
+        margin=dict(l=10, r=60, t=30, b=50), xaxis=dict(showgrid=True, gridcolor='rgba(42,42,42,0.5)'),
         yaxis=dict(showgrid=True, gridcolor='rgba(42,42,42,0.5)', title='Regime Score', range=[-2, 2]),
-        font=dict(family='Inter', color='#EAEAEA'),
-        hovermode='x unified', showlegend=False
+        font=dict(family='Inter', color='#EAEAEA'), hovermode='x unified', showlegend=False
     )
+    return fig
+
+
+def create_factor_evolution_chart(ts_results: list) -> go.Figure:
+    """Create factor score evolution over time"""
+    if not ts_results or 'factors' not in ts_results[0]:
+        return go.Figure()
     
+    dates = [r['date'] for r in ts_results]
+    factor_data = {}
+    for factor_name in ts_results[0].get('factors', {}).keys():
+        factor_data[factor_name] = [r.get('factors', {}).get(factor_name, 0) for r in ts_results]
+    
+    fig = go.Figure()
+    colors = ['#FFC300', '#10b981', '#ef4444', '#06b6d4', '#f59e0b', '#888888', '#a855f7']
+    
+    for i, (name, values) in enumerate(factor_data.items()):
+        fig.add_trace(go.Scatter(
+            x=dates, y=values, mode='lines', name=name.upper(),
+            line=dict(color=colors[i % len(colors)], width=2),
+            hovertemplate=f"<b>{name.upper()}</b><br>%{{x|%Y-%m-%d}}<br>Score: %{{y:.2f}}<extra></extra>"
+        ))
+    
+    fig.add_hline(y=0, line=dict(color='rgba(255,255,255,0.3)', width=1))
+    
+    fig.update_layout(
+        template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='#1A1A1A', height=350,
+        margin=dict(l=10, r=10, t=30, b=50), xaxis=dict(showgrid=True, gridcolor='rgba(42,42,42,0.5)'),
+        yaxis=dict(showgrid=True, gridcolor='rgba(42,42,42,0.5)', title='Factor Score', range=[-2.5, 2.5]),
+        font=dict(family='Inter', color='#EAEAEA'), hovermode='x unified',
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, bgcolor='rgba(0,0,0,0)')
+    )
     return fig
 
 
@@ -420,29 +510,85 @@ def create_regime_distribution_chart(ts_results: list) -> go.Figure:
     
     labels = list(regime_counts.keys())
     values = list(regime_counts.values())
-    
-    color_map = {
-        'STRONG_BULL': '#10b981', 'BULL': '#34d399', 'WEAK_BULL': '#86efac',
-        'CHOP': '#888888',
-        'WEAK_BEAR': '#fbbf24', 'BEAR': '#f87171', 'CRISIS': '#ef4444'
-    }
+    color_map = {'STRONG_BULL': '#10b981', 'BULL': '#34d399', 'WEAK_BULL': '#86efac', 'CHOP': '#888888', 'WEAK_BEAR': '#fbbf24', 'BEAR': '#f87171', 'CRISIS': '#ef4444'}
     colors = [color_map.get(l, '#888888') for l in labels]
     
     fig = go.Figure(go.Pie(
-        labels=labels, values=values,
-        hole=0.5,
-        marker=dict(colors=colors, line=dict(color='#1A1A1A', width=2)),
-        textinfo='label+percent',
-        textfont=dict(size=11, color='white')
+        labels=labels, values=values, hole=0.5, marker=dict(colors=colors, line=dict(color='#1A1A1A', width=2)),
+        textinfo='label+percent', textfont=dict(size=11, color='white'),
+        hovertemplate="<b>%{label}</b><br>Days: %{value}<br>%{percent}<extra></extra>"
+    ))
+    
+    fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=300, margin=dict(l=20, r=20, t=30, b=20), font=dict(family='Inter', color='#EAEAEA'), showlegend=False)
+    return fig
+
+
+def create_regime_transition_matrix(ts_results: list) -> go.Figure:
+    """Create regime transition probability matrix"""
+    if len(ts_results) < 2:
+        return go.Figure()
+    
+    transitions = {}
+    regimes = list(set(r['regime'] for r in ts_results))
+    for from_regime in regimes:
+        transitions[from_regime] = {to_regime: 0 for to_regime in regimes}
+    
+    for i in range(len(ts_results) - 1):
+        transitions[ts_results[i]['regime']][ts_results[i + 1]['regime']] += 1
+    
+    matrix = []
+    for from_regime in regimes:
+        row = []
+        total = sum(transitions[from_regime].values())
+        for to_regime in regimes:
+            prob = transitions[from_regime][to_regime] / total if total > 0 else 0
+            row.append(prob)
+        matrix.append(row)
+    
+    fig = go.Figure(data=go.Heatmap(
+        z=matrix, x=regimes, y=regimes, colorscale='YlOrRd',
+        text=[[f"{v:.0%}" for v in row] for row in matrix], texttemplate="%{text}", textfont=dict(size=11, color='white'),
+        hovertemplate="From: %{y}<br>To: %{x}<br>Probability: %{z:.1%}<extra></extra>"
     ))
     
     fig.update_layout(
-        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-        height=300, margin=dict(l=20, r=20, t=30, b=20),
-        font=dict(family='Inter', color='#EAEAEA'),
-        showlegend=False
+        template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='#1A1A1A', height=350,
+        margin=dict(l=100, r=20, t=40, b=80), xaxis=dict(title="To Regime", tickangle=45),
+        yaxis=dict(title="From Regime"), font=dict(family='Inter', color='#EAEAEA')
     )
+    return fig
+
+
+def create_momentum_indicator(ts_results: list) -> go.Figure:
+    """Create regime momentum/strength indicator"""
+    if len(ts_results) < 5:
+        return go.Figure()
     
+    dates = [r['date'] for r in ts_results]
+    scores = [r['score'] for r in ts_results]
+    
+    momentum = [0] * 3
+    for i in range(3, len(scores)):
+        momentum.append(scores[i] - scores[i-3])
+    
+    acceleration = [0] * 3
+    for i in range(3, len(momentum)):
+        acceleration.append(momentum[i] - momentum[i-3])
+    
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.1, subplot_titles=("Regime Momentum (3-day ROC)", "Regime Acceleration"))
+    
+    mom_colors = ['#10b981' if m > 0 else '#ef4444' for m in momentum]
+    fig.add_trace(go.Bar(x=dates, y=momentum, marker_color=mom_colors, name='Momentum', hovertemplate="<b>%{x|%Y-%m-%d}</b><br>Momentum: %{y:.3f}<extra></extra>"), row=1, col=1)
+    
+    acc_colors = ['#10b981' if a > 0 else '#ef4444' for a in acceleration]
+    fig.add_trace(go.Bar(x=dates, y=acceleration, marker_color=acc_colors, name='Acceleration', hovertemplate="<b>%{x|%Y-%m-%d}</b><br>Acceleration: %{y:.3f}<extra></extra>"), row=2, col=1)
+    
+    fig.update_layout(
+        template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='#1A1A1A', height=400,
+        margin=dict(l=10, r=10, t=40, b=30), font=dict(family='Inter', color='#EAEAEA'), showlegend=False, hovermode='x unified'
+    )
+    fig.update_xaxes(showgrid=True, gridcolor='rgba(42,42,42,0.5)')
+    fig.update_yaxes(showgrid=True, gridcolor='rgba(42,42,42,0.5)')
     return fig
 
 
@@ -450,18 +596,17 @@ def create_regime_distribution_chart(ts_results: list) -> go.Figure:
 # DISPLAY FUNCTIONS
 # ══════════════════════════════════════════════════════════════════════════════
 
-def display_single_day_result(result: RegimeResult):
+def display_single_day_result(result: RegimeResult, latest_df: pd.DataFrame = None):
     """Display single day regime detection result"""
     regime_class = get_regime_color_class(result.regime)
     detector = MarketRegimeDetector()
     emoji = detector.get_regime_emoji(result.regime)
     
-    # Main regime display
     col1, col2, col3 = st.columns([1, 2, 1])
     
     with col1:
         st.markdown(f"""
-        <div class='metric-card {regime_class}'>
+        <div class='metric-card {"success" if regime_class == "bull" else "danger" if regime_class == "bear" else "warning"}'>
             <h4>Detected Regime</h4>
             <h2>{emoji} {result.regime_name}</h2>
             <div class='sub-metric'>Analysis: {result.analysis_date}</div>
@@ -488,138 +633,156 @@ def display_single_day_result(result: RegimeResult):
         </div>
         """, unsafe_allow_html=True)
     
-    # Warnings
     if result.warnings:
         for warning in result.warnings:
-            st.markdown(f"""
-            <div class='warning-box'>
-                ⚠️ <strong>Warning:</strong> {warning}
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(f"<div class='warning-box'>⚠️ <strong>Warning:</strong> {warning}</div>", unsafe_allow_html=True)
     
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
     
-    # Composite score visualization
-    st.markdown("##### Regime Score Position")
-    score_chart = create_composite_score_chart(result.composite_score)
-    st.plotly_chart(score_chart, use_container_width=True, config={'displayModeBar': False})
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 Overview", "🎯 Factor Analysis", "📈 Breadth Deep Dive", "🗺️ Symbol Heatmap"])
     
-    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+    with tab1:
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            st.markdown("##### Regime Strength Gauge")
+            st.plotly_chart(create_regime_gauge(result.composite_score, result.confidence), width="stretch")
+        with col2:
+            st.markdown("##### Score Position")
+            st.plotly_chart(create_composite_score_chart(result.composite_score), width="stretch")
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown("##### Analysis Summary")
+            st.markdown(f"<div class='info-box'>{result.explanation.replace(chr(10), '<br>')}</div>", unsafe_allow_html=True)
     
-    # Factor breakdown
-    col1, col2 = st.columns([1, 1])
-    
-    with col1:
-        st.markdown("##### Factor Contributions")
-        breakdown_chart = create_factor_breakdown_chart(result)
-        st.plotly_chart(breakdown_chart, use_container_width=True, config={'displayModeBar': False})
-    
-    with col2:
+    with tab2:
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            st.markdown("##### Factor Radar")
+            st.plotly_chart(create_factor_radar_chart(result), width="stretch")
+        with col2:
+            st.markdown("##### Factor Contributions")
+            st.plotly_chart(create_factor_breakdown_chart(result), width="stretch")
+        
+        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
         st.markdown("##### Factor Details")
-        for name, factor in result.factors.items():
-            score_color = "🟢" if factor.score >= 0.5 else "🔴" if factor.score <= -0.5 else "🟡"
-            with st.expander(f"{score_color} **{name.upper()}** — {factor.classification}", expanded=False):
-                st.write(f"**Score:** {factor.score:+.2f}")
-                if factor.metrics:
-                    st.write("**Metrics:**")
-                    for k, v in factor.metrics.items():
-                        if isinstance(v, float):
-                            st.write(f"- {k}: {v:.3f}")
-                        else:
-                            st.write(f"- {k}: {v}")
+        
+        cols = st.columns(4)
+        for i, (name, factor) in enumerate(result.factors.items()):
+            with cols[i % 4]:
+                color_class = "success" if factor.score >= 0.5 else "danger" if factor.score <= -0.5 else "warning"
+                st.markdown(f"""
+                <div class='metric-card {color_class}'>
+                    <h4>{name.upper()}</h4>
+                    <h2>{factor.score:+.2f}</h2>
+                    <div class='sub-metric'>{factor.classification}</div>
+                </div>
+                """, unsafe_allow_html=True)
     
-    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+    with tab3:
+        if latest_df is not None and not latest_df.empty:
+            st.markdown("##### Market Breadth Analysis")
+            st.plotly_chart(create_breadth_analysis_chart(latest_df), width="stretch")
+            
+            st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+            
+            col1, col2, col3, col4 = st.columns(4)
+            total = len(latest_df)
+            rsi_bull = (latest_df['rsi latest'] > 50).sum()
+            osc_pos = (latest_df['osc latest'] > 0).sum()
+            above_200 = (latest_df['price'] > latest_df['ma200 latest']).sum() if 'ma200 latest' in latest_df.columns else 0
+            avg_rsi = latest_df['rsi latest'].mean()
+            
+            with col1:
+                st.markdown(f"<div class='metric-card success'><h4>RSI Bullish</h4><h2>{rsi_bull/total*100:.0f}%</h2><div class='sub-metric'>{rsi_bull} of {total}</div></div>", unsafe_allow_html=True)
+            with col2:
+                st.markdown(f"<div class='metric-card {'success' if osc_pos > total/2 else 'danger'}'><h4>Oscillator +ve</h4><h2>{osc_pos/total*100:.0f}%</h2><div class='sub-metric'>{osc_pos} of {total}</div></div>", unsafe_allow_html=True)
+            with col3:
+                st.markdown(f"<div class='metric-card {'success' if above_200/total > 0.5 else 'danger'}'><h4>Above 200 DMA</h4><h2>{above_200/total*100:.0f}%</h2><div class='sub-metric'>{above_200} of {total}</div></div>", unsafe_allow_html=True)
+            with col4:
+                st.markdown(f"<div class='metric-card {'success' if avg_rsi > 55 else 'danger' if avg_rsi < 45 else 'warning'}'><h4>Avg RSI</h4><h2>{avg_rsi:.1f}</h2><div class='sub-metric'>Universe avg</div></div>", unsafe_allow_html=True)
+        else:
+            st.info("Breadth data not available.")
     
-    # Full explanation
-    st.markdown("##### Analysis Summary")
-    st.markdown(f"""
-    <div class='info-box'>
-        {result.explanation.replace(chr(10), '<br>')}
-    </div>
-    """, unsafe_allow_html=True)
+    with tab4:
+        if latest_df is not None and not latest_df.empty:
+            st.markdown("##### Symbol Condition Heatmap")
+            st.markdown('<p style="color: #888888; font-size: 0.85rem;">Sorted by composite score: Green = Bullish | Red = Bearish</p>', unsafe_allow_html=True)
+            st.plotly_chart(create_symbol_heatmap(latest_df), width="stretch")
+            
+            st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("##### 🟢 Top Bullish Symbols")
+                top_df = latest_df.nlargest(10, 'rsi latest')[['symbol', 'rsi latest', 'osc latest', '% change']].copy()
+                top_df.columns = ['Symbol', 'RSI', 'Oscillator', '% Change']
+                top_df['RSI'] = top_df['RSI'].round(1)
+                top_df['Oscillator'] = top_df['Oscillator'].round(1)
+                top_df['% Change'] = top_df['% Change'].round(2)
+                st.dataframe(top_df, width="stretch", hide_index=True)
+            with col2:
+                st.markdown("##### 🔴 Top Bearish Symbols")
+                bottom_df = latest_df.nsmallest(10, 'rsi latest')[['symbol', 'rsi latest', 'osc latest', '% change']].copy()
+                bottom_df.columns = ['Symbol', 'RSI', 'Oscillator', '% Change']
+                bottom_df['RSI'] = bottom_df['RSI'].round(1)
+                bottom_df['Oscillator'] = bottom_df['Oscillator'].round(1)
+                bottom_df['% Change'] = bottom_df['% Change'].round(2)
+                st.dataframe(bottom_df, width="stretch", hide_index=True)
+        else:
+            st.info("Symbol data not available.")
 
 
 def display_time_series_results(ts_results: list):
     """Display time series regime analysis results"""
-    
-    # Summary metrics
     total_days = len(ts_results)
     bull_days = sum(1 for r in ts_results if r['regime'] in ['STRONG_BULL', 'BULL'])
     bear_days = sum(1 for r in ts_results if r['regime'] in ['BEAR', 'CRISIS'])
-    chop_days = total_days - bull_days - bear_days
     avg_score = np.mean([r['score'] for r in ts_results])
     
-    col1, col2, col3, col4 = st.columns(4)
+    recent_scores = [r['score'] for r in ts_results[-5:]] if len(ts_results) >= 5 else [r['score'] for r in ts_results]
+    momentum = recent_scores[-1] - recent_scores[0] if len(recent_scores) > 1 else 0
     
+    col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
-        st.markdown(f"""
-        <div class='metric-card neutral'>
-            <h4>Days Analyzed</h4>
-            <h2>{total_days}</h2>
-            <div class='sub-metric'>Trading Days</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
+        st.markdown(f"<div class='metric-card neutral'><h4>Days Analyzed</h4><h2>{total_days}</h2><div class='sub-metric'>Trading Days</div></div>", unsafe_allow_html=True)
     with col2:
-        st.markdown(f"""
-        <div class='metric-card success'>
-            <h4>Bull Days</h4>
-            <h2>{bull_days}</h2>
-            <div class='sub-metric'>{bull_days/total_days*100:.1f}% of period</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
+        st.markdown(f"<div class='metric-card success'><h4>Bull Days</h4><h2>{bull_days}</h2><div class='sub-metric'>{bull_days/total_days*100:.1f}%</div></div>", unsafe_allow_html=True)
     with col3:
-        st.markdown(f"""
-        <div class='metric-card danger'>
-            <h4>Bear Days</h4>
-            <h2>{bear_days}</h2>
-            <div class='sub-metric'>{bear_days/total_days*100:.1f}% of period</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
+        st.markdown(f"<div class='metric-card danger'><h4>Bear Days</h4><h2>{bear_days}</h2><div class='sub-metric'>{bear_days/total_days*100:.1f}%</div></div>", unsafe_allow_html=True)
     with col4:
         score_class = "success" if avg_score > 0.5 else "danger" if avg_score < -0.5 else "warning"
-        st.markdown(f"""
-        <div class='metric-card {score_class}'>
-            <h4>Avg Score</h4>
-            <h2>{avg_score:+.2f}</h2>
-            <div class='sub-metric'>Mean Regime Score</div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f"<div class='metric-card {score_class}'><h4>Avg Score</h4><h2>{avg_score:+.2f}</h2><div class='sub-metric'>Mean</div></div>", unsafe_allow_html=True)
+    with col5:
+        mom_class = "success" if momentum > 0.1 else "danger" if momentum < -0.1 else "neutral"
+        mom_arrow = "▲" if momentum > 0 else "▼" if momentum < 0 else "→"
+        st.markdown(f"<div class='metric-card {mom_class}'><h4>Momentum</h4><h2>{mom_arrow} {abs(momentum):.2f}</h2><div class='sub-metric'>5-day</div></div>", unsafe_allow_html=True)
     
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
     
-    # Tabs for different views
-    tab1, tab2, tab3 = st.tabs(["📈 Regime Evolution", "📊 Distribution", "📋 Data Table"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📈 Regime Evolution", "🔄 Factor Evolution", "📊 Statistics", "🔀 Transitions", "📋 Data"])
     
     with tab1:
         st.markdown("##### Regime Score Over Time")
-        st.markdown('<p style="color: #888888; font-size: 0.85rem;">Green zone = Bullish | Red zone = Bearish | Yellow line = Threshold</p>', unsafe_allow_html=True)
-        
-        fig = create_time_series_chart(ts_results)
-        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+        st.plotly_chart(create_time_series_chart(ts_results), width="stretch")
+        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+        st.markdown("##### Regime Momentum & Acceleration")
+        st.plotly_chart(create_momentum_indicator(ts_results), width="stretch")
     
     with tab2:
+        st.markdown("##### Factor Score Evolution")
+        st.plotly_chart(create_factor_evolution_chart(ts_results), width="stretch")
+    
+    with tab3:
         col_d1, col_d2 = st.columns(2)
-        
         with col_d1:
             st.markdown("##### Regime Distribution")
-            dist_chart = create_regime_distribution_chart(ts_results)
-            st.plotly_chart(dist_chart, use_container_width=True, config={'displayModeBar': False})
-        
+            st.plotly_chart(create_regime_distribution_chart(ts_results), width="stretch")
         with col_d2:
             st.markdown("##### Regime Statistics")
             regime_stats = {}
             for r in ts_results:
-                regime = r['regime']
-                regime_stats[regime] = regime_stats.get(regime, 0) + 1
-            
-            stats_df = pd.DataFrame([
-                {"Regime": k, "Days": v, "Percentage": f"{v/total_days*100:.1f}%"}
-                for k, v in sorted(regime_stats.items(), key=lambda x: -x[1])
-            ])
-            st.dataframe(stats_df, use_container_width=True, hide_index=True)
+                regime_stats[r['regime']] = regime_stats.get(r['regime'], 0) + 1
+            stats_df = pd.DataFrame([{"Regime": k, "Days": v, "Percentage": f"{v/total_days*100:.1f}%"} for k, v in sorted(regime_stats.items(), key=lambda x: -x[1])])
+            st.dataframe(stats_df, width="stretch", hide_index=True)
             
             st.markdown("<br>", unsafe_allow_html=True)
             st.markdown("##### Score Statistics")
@@ -631,28 +794,49 @@ def display_time_series_results(ts_results: list):
                 {"Metric": "Min", "Value": f"{np.min(scores):.2f}"},
                 {"Metric": "Max", "Value": f"{np.max(scores):.2f}"},
             ])
-            st.dataframe(score_stats, use_container_width=True, hide_index=True)
+            st.dataframe(score_stats, width="stretch", hide_index=True)
     
-    with tab3:
-        st.markdown(f"##### Daily Regime Data ({len(ts_results)} trading days)")
+    with tab4:
+        st.markdown("##### Regime Transition Probability Matrix")
+        st.plotly_chart(create_regime_transition_matrix(ts_results), width="stretch")
         
+        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+        st.markdown("##### Regime Duration Analysis")
+        
+        streaks = []
+        current_regime = ts_results[0]['regime']
+        current_streak = 1
+        for i in range(1, len(ts_results)):
+            if ts_results[i]['regime'] == current_regime:
+                current_streak += 1
+            else:
+                streaks.append({'regime': current_regime, 'duration': current_streak})
+                current_regime = ts_results[i]['regime']
+                current_streak = 1
+        streaks.append({'regime': current_regime, 'duration': current_streak})
+        
+        duration_stats = {}
+        for s in streaks:
+            if s['regime'] not in duration_stats:
+                duration_stats[s['regime']] = []
+            duration_stats[s['regime']].append(s['duration'])
+        
+        duration_df = pd.DataFrame([{"Regime": regime, "Occurrences": len(durations), "Avg Duration": f"{np.mean(durations):.1f} days", "Max Duration": f"{max(durations)} days"} for regime, durations in duration_stats.items()])
+        st.dataframe(duration_df, width="stretch", hide_index=True)
+    
+    with tab5:
+        st.markdown(f"##### Daily Regime Data ({len(ts_results)} trading days)")
         display_df = pd.DataFrame(ts_results)
         display_df['date'] = pd.to_datetime(display_df['date']).dt.strftime('%Y-%m-%d')
         display_df['score'] = display_df['score'].round(2)
         display_df['confidence'] = (display_df['confidence'] * 100).round(0).astype(int).astype(str) + '%'
-        display_df = display_df[['date', 'regime', 'score', 'confidence', 'mix']]
-        display_df.columns = ['Date', 'Regime', 'Score', 'Confidence', 'Suggested Mix']
+        display_cols = ['date', 'regime', 'score', 'confidence', 'mix']
+        display_df = display_df[[c for c in display_cols if c in display_df.columns]]
+        display_df.columns = ['Date', 'Regime', 'Score', 'Confidence', 'Suggested Mix'][:len(display_df.columns)]
+        st.dataframe(display_df, width="stretch", hide_index=True, height=400)
         
-        st.dataframe(display_df, use_container_width=True, hide_index=True, height=400)
-        
-        st.markdown("<br>", unsafe_allow_html=True)
         csv_data = display_df.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="📥 Download Regime Time Series (CSV)",
-            data=csv_data,
-            file_name=f"avastha_regime_timeseries.csv",
-            mime="text/csv"
-        )
+        st.download_button(label="📥 Download Regime Time Series (CSV)", data=csv_data, file_name="avastha_regime_timeseries.csv", mime="text/csv")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -660,7 +844,6 @@ def display_time_series_results(ts_results: list):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def render_sidebar():
-    """Render sidebar with all controls"""
     with st.sidebar:
         st.markdown("""
         <div style="text-align: center; padding: 1rem 0; margin-bottom: 1rem;">
@@ -670,88 +853,39 @@ def render_sidebar():
         """, unsafe_allow_html=True)
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
         
-        # Universe Selection
         st.markdown('<div class="sidebar-title">🎯 Universe Selection</div>', unsafe_allow_html=True)
-        universe_type = st.selectbox(
-            "Analysis Universe",
-            UNIVERSE_OPTIONS,
-            help="Choose the stock/ETF universe for regime analysis"
-        )
+        universe_type = st.selectbox("Analysis Universe", UNIVERSE_OPTIONS, help="Choose the stock/ETF universe")
         
         selected_index = None
         if universe_type == "Index Constituents":
-            selected_index = st.selectbox(
-                "Select Index",
-                INDEX_LIST,
-                index=INDEX_LIST.index("NIFTY 500"),
-                help="Select the index for constituent analysis"
-            )
+            selected_index = st.selectbox("Select Index", INDEX_LIST, index=INDEX_LIST.index("NIFTY 500"))
         
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-        
-        # Analysis Type
         st.markdown('<div class="sidebar-title">📊 Analysis Type</div>', unsafe_allow_html=True)
-        analysis_mode = st.radio(
-            "Select Mode",
-            ["📅 Single Day", "📈 Time Series"],
-            label_visibility="collapsed",
-            help="Single Day: Analyze one date | Time Series: Track regime over a date range"
-        )
+        analysis_mode = st.radio("Select Mode", ["📅 Single Day", "📈 Time Series"], label_visibility="collapsed")
         
-        # Date Selection
-        single_date = None
-        start_date = None
-        end_date = None
-        
+        single_date, start_date, end_date = None, None, None
         if "Single" in analysis_mode:
             st.markdown('<div class="sidebar-title">📅 Analysis Date</div>', unsafe_allow_html=True)
-            single_date = st.date_input(
-                "Select Date",
-                dt.date.today() - timedelta(days=1),
-                max_value=dt.date.today(),
-                help="Select the date for regime analysis"
-            )
+            single_date = st.date_input("Select Date", dt.date.today() - timedelta(days=1), max_value=dt.date.today())
         else:
             st.markdown('<div class="sidebar-title">📅 Date Range</div>', unsafe_allow_html=True)
             col_d1, col_d2 = st.columns(2)
             with col_d1:
-                start_date = st.date_input(
-                    "Start Date",
-                    dt.date.today() - timedelta(days=60),
-                    max_value=dt.date.today(),
-                    help="Start of analysis period"
-                )
+                start_date = st.date_input("Start Date", dt.date.today() - timedelta(days=60), max_value=dt.date.today())
             with col_d2:
-                end_date = st.date_input(
-                    "End Date",
-                    dt.date.today() - timedelta(days=1),
-                    max_value=dt.date.today(),
-                    help="End of analysis period"
-                )
+                end_date = st.date_input("End Date", dt.date.today() - timedelta(days=1), max_value=dt.date.today())
         
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-        
-        # Run Button
         run_analysis = st.button("◈ RUN ANALYSIS", type="primary", use_container_width=True)
         
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-        
-        # Info
-        st.markdown(f"""
-        <div class='info-box'>
-            <p style='font-size: 0.8rem; margin: 0; color: var(--text-muted); line-height: 1.5;'>
-                <strong>Version:</strong> {VERSION}<br>
-                <strong>Engine:</strong> Multi-Factor Analysis<br>
-                <strong>Data:</strong> yfinance Live
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f"<div class='info-box'><p style='font-size: 0.8rem; margin: 0; color: var(--text-muted);'><strong>Version:</strong> {VERSION}<br><strong>Engine:</strong> Multi-Factor<br><strong>Data:</strong> yfinance</p></div>", unsafe_allow_html=True)
         
         return universe_type, selected_index, analysis_mode, single_date, start_date, end_date, run_analysis
 
 
 def render_header():
-    """Render main header"""
     st.markdown(f"""
     <div class="premium-header">
         <h1>{APP_TITLE} : {APP_SUBTITLE}</h1>
@@ -761,27 +895,15 @@ def render_header():
 
 
 def run_home_page():
-    """Render landing/home page"""
     st.markdown("<br>", unsafe_allow_html=True)
-    
-    # Feature cards
     col1, col2, col3 = st.columns(3)
     
     with col1:
         st.markdown("""
         <div class='metric-card primary' style='min-height: 260px;'>
             <h3 style='color: var(--primary-color); margin-bottom: 1rem;'>🎯 Multi-Factor Analysis</h3>
-            <p style='color: var(--text-muted); font-size: 0.9rem; line-height: 1.6;'>
-                7 analysis factors combine to determine market regime with weighted scoring.
-            </p>
-            <br>
-            <p style='color: var(--text-secondary); font-size: 0.85rem;'>
-                <strong>Factors:</strong><br>
-                • Momentum (30%)<br>
-                • Trend (25%)<br>
-                • Breadth (15%)<br>
-                • Velocity (15%)
-            </p>
+            <p style='color: var(--text-muted); font-size: 0.9rem; line-height: 1.6;'>7 factors combine to determine market regime with weighted scoring.</p>
+            <br><p style='color: var(--text-secondary); font-size: 0.85rem;'><strong>Factors:</strong> Momentum (30%), Trend (25%), Breadth (15%), Velocity (15%)</p>
         </div>
         """, unsafe_allow_html=True)
     
@@ -789,16 +911,8 @@ def run_home_page():
         st.markdown("""
         <div class='metric-card success' style='min-height: 260px;'>
             <h3 style='color: var(--success-green); margin-bottom: 1rem;'>📊 7 Regime Types</h3>
-            <p style='color: var(--text-muted); font-size: 0.9rem; line-height: 1.6;'>
-                From CRISIS to STRONG_BULL with suggested portfolio positioning for each.
-            </p>
-            <br>
-            <p style='color: var(--text-secondary); font-size: 0.85rem;'>
-                <strong>Classifications:</strong><br>
-                • 🐂 Bull Market Mix<br>
-                • 📊 Chop/Consolidation Mix<br>
-                • 🐻 Bear Market Mix
-            </p>
+            <p style='color: var(--text-muted); font-size: 0.9rem; line-height: 1.6;'>From CRISIS to STRONG_BULL with suggested portfolio positioning.</p>
+            <br><p style='color: var(--text-secondary); font-size: 0.85rem;'><strong>Mixes:</strong> 🐂 Bull, 📊 Chop, 🐻 Bear Market Mix</p>
         </div>
         """, unsafe_allow_html=True)
     
@@ -806,57 +920,33 @@ def run_home_page():
         st.markdown("""
         <div class='metric-card info' style='min-height: 260px;'>
             <h3 style='color: var(--info-cyan); margin-bottom: 1rem;'>📈 Flexible Analysis</h3>
-            <p style='color: var(--text-muted); font-size: 0.9rem; line-height: 1.6;'>
-                Single Day or Time Series analysis across multiple universes.
-            </p>
-            <br>
-            <p style='color: var(--text-secondary); font-size: 0.85rem;'>
-                <strong>Universes:</strong><br>
-                • ETF Universe (28 ETFs)<br>
-                • F&O Stocks (~200+)<br>
-                • Index Constituents
-            </p>
+            <p style='color: var(--text-muted); font-size: 0.9rem; line-height: 1.6;'>Single Day or Time Series analysis across multiple universes.</p>
+            <br><p style='color: var(--text-secondary); font-size: 0.85rem;'><strong>Universes:</strong> ETF (28), F&O (~200+), Index Constituents</p>
         </div>
         """, unsafe_allow_html=True)
     
     st.markdown("<br>", unsafe_allow_html=True)
-    
-    # Getting started
     st.markdown("""
     <div class='info-box'>
         <h4>🚀 Getting Started</h4>
-        <p style='color: var(--text-muted); line-height: 1.7;'>
-            Select your analysis <strong>Universe</strong> and <strong>Analysis Type</strong> from the sidebar, 
-            then click <strong>RUN ANALYSIS</strong> to detect the current market regime.
-            The system will analyze multiple factors across your selected universe to determine
-            whether the market is in a bullish, bearish, or choppy state.
-        </p>
+        <p>Select <strong>Universe</strong> and <strong>Analysis Type</strong> from sidebar, then click <strong>RUN ANALYSIS</strong>.</p>
     </div>
     """, unsafe_allow_html=True)
 
 
 def main():
-    """Main application entry point"""
-    
-    # Render sidebar and get controls
     universe_type, selected_index, analysis_mode, single_date, start_date, end_date, run_analysis = render_sidebar()
-    
-    # Render header
     render_header()
     
-    # Run analysis if button clicked
     if run_analysis:
-        # Initialize engine
         engine = MarketDataEngine()
         detector = MarketRegimeDetector()
         
-        # Set universe
         progress = st.progress(0, text="Initializing...")
         universe_msg = engine.set_universe(universe_type, selected_index)
         st.toast(universe_msg, icon="✅" if "✓" in universe_msg else "⚠️")
         
         if "Single" in analysis_mode:
-            # Single Day Analysis
             analysis_dt = datetime.combine(single_date, datetime.min.time())
             
             def update_progress(p, msg):
@@ -864,28 +954,24 @@ def main():
             
             try:
                 historical_data = engine.get_regime_data(analysis_dt, progress_callback=update_progress)
-                
                 if not historical_data:
-                    st.error("Failed to fetch market data. Please check your date and try again.")
+                    st.error("Failed to fetch market data.")
                     progress.empty()
                     return
                 
                 result = detector.detect(historical_data)
+                latest_df = historical_data[-1][1] if historical_data else None
                 
                 progress.empty()
                 st.session_state.regime_result = result
+                st.session_state.latest_df = latest_df
                 st.session_state.time_series_results = None
-                
                 st.success("✅ Regime analysis completed!")
-                
             except Exception as e:
                 progress.empty()
                 st.error(f"Analysis failed: {str(e)}")
-                logging.error(f"Analysis error: {e}", exc_info=True)
                 return
-        
         else:
-            # Time Series Analysis
             start_dt = datetime.combine(start_date, datetime.min.time())
             end_dt = datetime.combine(end_date, datetime.min.time())
             
@@ -894,52 +980,42 @@ def main():
             
             try:
                 historical_data = engine.get_time_series_regime_data(start_dt, end_dt, progress_callback=update_progress)
-                
                 if not historical_data:
-                    st.error("Failed to fetch market data. Please check your dates and try again.")
+                    st.error("Failed to fetch market data.")
                     progress.empty()
                     return
                 
-                # Run regime detection for each day
                 ts_results = []
                 total_days = len(historical_data)
                 
                 for i in range(10, len(historical_data)):
                     window = historical_data[i-10:i+1]
                     result = detector.detect(window)
-                    
+                    factor_scores = {name: f.score for name, f in result.factors.items()}
                     ts_results.append({
-                        'date': historical_data[i][0],
-                        'regime': result.regime_name,
-                        'score': result.composite_score,
-                        'confidence': result.confidence,
-                        'mix': result.suggested_mix
+                        'date': historical_data[i][0], 'regime': result.regime_name, 'score': result.composite_score,
+                        'confidence': result.confidence, 'mix': result.suggested_mix, 'factors': factor_scores
                     })
-                    
                     if i % 5 == 0:
                         progress.progress(0.7 + 0.3 * (i / total_days), text=f"Analyzing day {i-9}/{total_days-10}...")
                 
                 progress.empty()
                 st.session_state.time_series_results = ts_results
                 st.session_state.regime_result = None
-                
-                st.success(f"✅ Time series analysis completed! ({len(ts_results)} days analyzed)")
-                
+                st.session_state.latest_df = None
+                st.success(f"✅ Time series completed! ({len(ts_results)} days)")
             except Exception as e:
                 progress.empty()
                 st.error(f"Analysis failed: {str(e)}")
-                logging.error(f"Analysis error: {e}", exc_info=True)
                 return
     
-    # Display results
     if st.session_state.regime_result is not None:
-        display_single_day_result(st.session_state.regime_result)
+        display_single_day_result(st.session_state.regime_result, st.session_state.latest_df)
     elif st.session_state.time_series_results is not None:
         display_time_series_results(st.session_state.time_series_results)
     else:
         run_home_page()
     
-    # Footer
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
     st.caption(f"© {datetime.now().year} AVASTHA | Hemrek Capital | {VERSION}")
 
