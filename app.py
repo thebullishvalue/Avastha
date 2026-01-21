@@ -33,7 +33,7 @@ from data_engine import (
 # CONFIGURATION
 # ══════════════════════════════════════════════════════════════════════════════
 
-VERSION = "v2.0.2"
+VERSION = "v2.0.3"
 APP_TITLE = "AVASTHA"
 APP_SUBTITLE = "Market Regime Detection System"
 
@@ -453,12 +453,12 @@ def create_time_series_chart(ts_results: list) -> go.Figure:
     colors = [get_regime_color(r) for r in regimes]
     
     # Calculate dynamic range based on data extremes
-    # Default to -2.5 to 2.5 for context, but expand if scores exceed this
+    # Default to -1.5 to 1.5 for context, but expand if scores exceed this
     data_min = min(scores) if scores else 0
     data_max = max(scores) if scores else 0
     
-    y_min = min(-2.5, data_min - 0.5)
-    y_max = max(2.5, data_max + 0.5)
+    y_min = min(-1.5, data_min - 0.5)
+    y_max = max(1.5, data_max + 0.5)
     
     fig = go.Figure()
     
@@ -488,7 +488,6 @@ def create_time_series_chart(ts_results: list) -> go.Figure:
         font=dict(family='Inter', color='#EAEAEA'), hovermode='x unified', showlegend=False
     )
     return fig
-
 
 def create_factor_evolution_chart(ts_results: list) -> go.Figure:
     """Create simplified factor score evolution - stacked area showing bull vs bear factors"""
