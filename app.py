@@ -4,7 +4,7 @@ AVASTHA - Market Regime Detection System
 Institutional-grade market regime detection using multi-factor analysis
 across momentum, trend, breadth, volatility, and statistical extremes.
 
-Version: 2.0.0
+Version: 2.0.1 (Patch: Fix Plotly Colorbar & Streamlit Width)
 Author: Hemrek Capital
 """
 
@@ -33,7 +33,7 @@ from data_engine import (
 # CONFIGURATION
 # ══════════════════════════════════════════════════════════════════════════════
 
-VERSION = "v2.0.0"
+VERSION = "v2.0.1"
 APP_TITLE = "AVASTHA"
 APP_SUBTITLE = "Market Regime Detection System"
 
@@ -421,15 +421,26 @@ def create_symbol_heatmap(df: pd.DataFrame) -> go.Figure:
     
     fig = go.Figure(data=go.Heatmap(
         z=normalized_scores,
-        text=[[f"{s}<br>{v:.2f}" if s else "" for s, v in zip(row_s, row_v)] for row_s, row_v in zip(symbols_grid, scores_grid)],
+        text=[[f"{v:.2f}" if s else "" for s, v in zip(row_s, row_v)] for row_s, row_v in zip(symbols_grid, scores_grid)],
         texttemplate="%{text}", textfont=dict(size=10, color='white', family='Inter'),
         colorscale=colorscale, showscale=False, hovertemplate="<b>%{text}</b><extra></extra>", xgap=3, ygap=3
     ))
     
+    # Add text annotations for symbols since texttemplate only handles one value cleanly in basic heatmap
+    annotations = []
+    for i in range(n_rows):
+        for j in range(n_cols):
+            if symbols_grid[i][j]:
+                annotations.append(dict(
+                    x=j, y=i, text=f"{symbols_grid[i][j]}<br>{scores_grid[i][j]:.2f}",
+                    showarrow=False, font=dict(color='white', size=10)
+                ))
+    
     fig.update_layout(
-        template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=max(200, n_rows * 50),
+        template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=max(200, n_rows * 60),
         margin=dict(l=0, r=0, t=10, b=10), xaxis=dict(showticklabels=False, showgrid=False, zeroline=False),
-        yaxis=dict(showticklabels=False, showgrid=False, zeroline=False, autorange='reversed'), font=dict(family='Inter')
+        yaxis=dict(showticklabels=False, showgrid=False, zeroline=False, autorange='reversed'), font=dict(family='Inter'),
+        annotations=annotations
     )
     return fig
 
@@ -558,6 +569,9 @@ def create_regime_transition_matrix(ts_results: list) -> go.Figure:
     regime_order = ['CRISIS', 'BEAR', 'WEAK_BEAR', 'CHOP', 'WEAK_BULL', 'BULL', 'STRONG_BULL']
     regimes = [r for r in regime_order if r in regimes]
     
+    if not regimes:
+        return go.Figure()
+
     for from_regime in regimes:
         transitions[from_regime] = {to_regime: 0 for to_regime in regimes}
     
@@ -592,11 +606,13 @@ def create_regime_transition_matrix(ts_results: list) -> go.Figure:
         textfont=dict(size=12, color='white', family='Inter'),
         hovertemplate="<b>From:</b> %{y}<br><b>To:</b> %{x}<br><b>Probability:</b> %{z:.1%}<extra></extra>",
         colorbar=dict(
-            title="Probability",
-            titleside="right",
+            title=dict(
+                text="Probability",
+                side="right",
+                font=dict(color='#888888')
+            ),
             tickformat=".0%",
-            tickfont=dict(color='#888888'),
-            titlefont=dict(color='#888888')
+            tickfont=dict(color='#888888')
         )
     ))
     
@@ -696,10 +712,10 @@ def display_single_day_result(result: RegimeResult, latest_df: pd.DataFrame = No
         col1, col2 = st.columns([1, 1])
         with col1:
             st.markdown("##### Regime Strength Gauge")
-            st.plotly_chart(create_regime_gauge(result.composite_score, result.confidence), width="stretch")
+            st.plotly_chart(create_regime_gauge(result.composite_score, result.confidence), use_container_width=True)
         with col2:
             st.markdown("##### Score Position")
-            st.plotly_chart(create_composite_score_chart(result.composite_score), width="stretch")
+            st.plotly_chart(create_composite_score_chart(result.composite_score), use_container_width=True)
             st.markdown("<br>", unsafe_allow_html=True)
             st.markdown("##### Analysis Summary")
             st.markdown(f"<div class='info-box'>{result.explanation.replace(chr(10), '<br>')}</div>", unsafe_allow_html=True)
@@ -708,10 +724,10 @@ def display_single_day_result(result: RegimeResult, latest_df: pd.DataFrame = No
         col1, col2 = st.columns([1, 1])
         with col1:
             st.markdown("##### Factor Radar")
-            st.plotly_chart(create_factor_radar_chart(result), width="stretch")
+            st.plotly_chart(create_factor_radar_chart(result), use_container_width=True)
         with col2:
             st.markdown("##### Factor Contributions")
-            st.plotly_chart(create_factor_breakdown_chart(result), width="stretch")
+            st.plotly_chart(create_factor_breakdown_chart(result), use_container_width=True)
         
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
         st.markdown("##### Factor Details")
@@ -731,7 +747,7 @@ def display_single_day_result(result: RegimeResult, latest_df: pd.DataFrame = No
     with tab3:
         if latest_df is not None and not latest_df.empty:
             st.markdown("##### Market Breadth Analysis")
-            st.plotly_chart(create_breadth_analysis_chart(latest_df), width="stretch")
+            st.plotly_chart(create_breadth_analysis_chart(latest_df), use_container_width=True)
             
             st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
             
@@ -757,7 +773,7 @@ def display_single_day_result(result: RegimeResult, latest_df: pd.DataFrame = No
         if latest_df is not None and not latest_df.empty:
             st.markdown("##### Symbol Condition Heatmap")
             st.markdown('<p style="color: #888888; font-size: 0.85rem;">Sorted by composite score: Green = Bullish | Red = Bearish</p>', unsafe_allow_html=True)
-            st.plotly_chart(create_symbol_heatmap(latest_df), width="stretch")
+            st.plotly_chart(create_symbol_heatmap(latest_df), use_container_width=True)
             
             st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
             
@@ -769,7 +785,7 @@ def display_single_day_result(result: RegimeResult, latest_df: pd.DataFrame = No
                 top_df['RSI'] = top_df['RSI'].round(1)
                 top_df['Oscillator'] = top_df['Oscillator'].round(1)
                 top_df['% Change'] = top_df['% Change'].round(2)
-                st.dataframe(top_df, width="stretch", hide_index=True)
+                st.dataframe(top_df, use_container_width=True, hide_index=True)
             with col2:
                 st.markdown("##### 🔴 Top Bearish Symbols")
                 bottom_df = latest_df.nsmallest(10, 'rsi latest')[['symbol', 'rsi latest', 'osc latest', '% change']].copy()
@@ -777,7 +793,7 @@ def display_single_day_result(result: RegimeResult, latest_df: pd.DataFrame = No
                 bottom_df['RSI'] = bottom_df['RSI'].round(1)
                 bottom_df['Oscillator'] = bottom_df['Oscillator'].round(1)
                 bottom_df['% Change'] = bottom_df['% Change'].round(2)
-                st.dataframe(bottom_df, width="stretch", hide_index=True)
+                st.dataframe(bottom_df, use_container_width=True, hide_index=True)
         else:
             st.info("Symbol data not available.")
 
@@ -813,15 +829,15 @@ def display_time_series_results(ts_results: list):
     
     with tab1:
         st.markdown("##### Regime Score Over Time")
-        st.plotly_chart(create_time_series_chart(ts_results), width="stretch")
+        st.plotly_chart(create_time_series_chart(ts_results), use_container_width=True)
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
         st.markdown("##### Regime Momentum & Acceleration")
-        st.plotly_chart(create_momentum_indicator(ts_results), width="stretch")
+        st.plotly_chart(create_momentum_indicator(ts_results), use_container_width=True)
     
     with tab2:
         st.markdown("##### Factor Strength Over Time")
         st.markdown('<p style="color: #888888; font-size: 0.85rem;">Green area = Bullish factor strength | Red area = Bearish factor strength | Gold line = Net balance</p>', unsafe_allow_html=True)
-        st.plotly_chart(create_factor_evolution_chart(ts_results), width="stretch")
+        st.plotly_chart(create_factor_evolution_chart(ts_results), use_container_width=True)
         
         # Add factor summary metrics
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
@@ -849,14 +865,14 @@ def display_time_series_results(ts_results: list):
         col_d1, col_d2 = st.columns(2)
         with col_d1:
             st.markdown("##### Regime Distribution")
-            st.plotly_chart(create_regime_distribution_chart(ts_results), width="stretch")
+            st.plotly_chart(create_regime_distribution_chart(ts_results), use_container_width=True)
         with col_d2:
             st.markdown("##### Regime Statistics")
             regime_stats = {}
             for r in ts_results:
                 regime_stats[r['regime']] = regime_stats.get(r['regime'], 0) + 1
             stats_df = pd.DataFrame([{"Regime": k, "Days": v, "Percentage": f"{v/total_days*100:.1f}%"} for k, v in sorted(regime_stats.items(), key=lambda x: -x[1])])
-            st.dataframe(stats_df, width="stretch", hide_index=True)
+            st.dataframe(stats_df, use_container_width=True, hide_index=True)
             
             st.markdown("<br>", unsafe_allow_html=True)
             st.markdown("##### Score Statistics")
@@ -868,11 +884,11 @@ def display_time_series_results(ts_results: list):
                 {"Metric": "Min", "Value": f"{np.min(scores):.2f}"},
                 {"Metric": "Max", "Value": f"{np.max(scores):.2f}"},
             ])
-            st.dataframe(score_stats, width="stretch", hide_index=True)
+            st.dataframe(score_stats, use_container_width=True, hide_index=True)
     
     with tab4:
         st.markdown("##### Regime Transition Probability Matrix")
-        st.plotly_chart(create_regime_transition_matrix(ts_results), width="stretch")
+        st.plotly_chart(create_regime_transition_matrix(ts_results), use_container_width=True)
         
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
         st.markdown("##### Regime Duration Analysis")
@@ -896,7 +912,7 @@ def display_time_series_results(ts_results: list):
             duration_stats[s['regime']].append(s['duration'])
         
         duration_df = pd.DataFrame([{"Regime": regime, "Occurrences": len(durations), "Avg Duration": f"{np.mean(durations):.1f} days", "Max Duration": f"{max(durations)} days"} for regime, durations in duration_stats.items()])
-        st.dataframe(duration_df, width="stretch", hide_index=True)
+        st.dataframe(duration_df, use_container_width=True, hide_index=True)
     
     with tab5:
         st.markdown(f"##### Daily Regime Data ({len(ts_results)} trading days)")
@@ -907,7 +923,7 @@ def display_time_series_results(ts_results: list):
         display_cols = ['date', 'regime', 'score', 'confidence', 'mix']
         display_df = display_df[[c for c in display_cols if c in display_df.columns]]
         display_df.columns = ['Date', 'Regime', 'Score', 'Confidence', 'Suggested Mix'][:len(display_df.columns)]
-        st.dataframe(display_df, width="stretch", hide_index=True, height=400)
+        st.dataframe(display_df, use_container_width=True, hide_index=True, height=400)
         
         csv_data = display_df.to_csv(index=False).encode('utf-8')
         st.download_button(label="📥 Download Regime Time Series (CSV)", data=csv_data, file_name="avastha_regime_timeseries.csv", mime="text/csv")
