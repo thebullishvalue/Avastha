@@ -145,7 +145,6 @@ st.markdown("""
     
     .premium-header h1 { margin: 0; font-size: 2rem; font-weight: 700; color: var(--text-primary); letter-spacing: -0.50px; position: relative; }
     .premium-header .tagline { color: var(--text-muted); font-size: 0.9rem; margin-top: 0.25rem; font-weight: 400; position: relative; }
-    .premium-header .product-badge { display: inline-block; background: rgba(var(--primary-rgb), 0.15); color: var(--primary-color); padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.5rem; }
     
     .metric-card {
         background-color: var(--bg-card);
@@ -755,7 +754,6 @@ def render_header():
     """Render main header"""
     st.markdown(f"""
     <div class="premium-header">
-        <div class="product-badge">A Pragyam Product</div>
         <h1>{APP_TITLE} : {APP_SUBTITLE}</h1>
         <div class="tagline">Institutional-grade regime detection using multi-factor analysis</div>
     </div>
@@ -855,7 +853,7 @@ def main():
         # Set universe
         progress = st.progress(0, text="Initializing...")
         universe_msg = engine.set_universe(universe_type, selected_index)
-        st.toast(universe_msg, icon="✓" if "✓" in universe_msg else "⚠️")
+        st.toast(universe_msg, icon="✅" if "✓" in universe_msg else "⚠️")
         
         if "Single" in analysis_mode:
             # Single Day Analysis

@@ -1,5 +1,4 @@
 # AVASTHA - Market Regime Detection System
-# A Pragyam Product Family Member
 # Dependencies
 
 # Core

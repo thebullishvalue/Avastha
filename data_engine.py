@@ -1,6 +1,5 @@
 """
 AVASTHA - Market Data Engine
-A Pragyam Product Family Member
 
 Handles data fetching, indicator calculation, and historical snapshot generation
 with support for multiple universes (ETF, F&O, Index Constituents).

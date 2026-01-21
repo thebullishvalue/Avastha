@@ -1,6 +1,5 @@
 """
 AVASTHA - Market Regime Detection Engine
-A Pragyam Product Family Member
 
 Core regime detection logic using multi-factor analysis across
 momentum, trend, breadth, volatility, and statistical extremes.

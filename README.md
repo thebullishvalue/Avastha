@@ -1,7 +1,5 @@
 # ◈ AVASTHA - Market Regime Detection System
 
-**A Pragyam Product Family Member**
-
 **Version:** 1.0.0  
 **Author:** Hemrek Capital
 
@@ -138,7 +136,7 @@ data = engine.get_regime_data(analysis_date, lookback_days=30)
 
 ## Design System
 
-AVASTHA uses the **Pragyam Design System** for consistent styling across the product family:
+AVASTHA uses a consistent dark theme design system:
 
 - **Primary Color**: #FFC300 (Gold)
 - **Background**: #0F0F0F (Near Black)
@@ -147,16 +145,6 @@ AVASTHA uses the **Pragyam Design System** for consistent styling across the pro
 - **Danger**: #ef4444 (Red)
 - **Warning**: #f59e0b (Amber)
 - **Font**: Inter
-
-## Product Family
-
-AVASTHA is part of the Pragyam Product Family:
-
-- **Pragyam**: Quantitative Portfolio Curation System
-- **UMA**: Unified Market Analysis (Signal Intelligence)
-- **AVASTHA**: Market Regime Detection System
-
-All products share the same design language and can be used together for comprehensive market analysis.
 
 ## Warnings System
 
@@ -176,7 +164,3 @@ AVASTHA generates warnings for:
 ## License
 
 Proprietary - Hemrek Capital
-
----
-
-*Part of the Pragyam Quantitative Systems Family*
