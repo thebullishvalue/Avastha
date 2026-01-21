@@ -468,13 +468,13 @@ def create_time_series_chart(ts_results: list) -> go.Figure:
     fig.add_hline(y=1.0, line=dict(color='rgba(16,185,129,0.5)', width=1, dash='dash'), annotation_text="Bull", annotation_position="right")
     fig.add_hline(y=-0.5, line=dict(color='rgba(239,68,68,0.5)', width=1, dash='dash'), annotation_text="Bear", annotation_position="right")
     fig.add_hline(y=0, line=dict(color='rgba(255,255,255,0.3)', width=1))
-    fig.add_hrect(y0=1.0, y1=2.5, fillcolor='rgba(16,185,129,0.08)', line_width=0)
-    fig.add_hrect(y0=-2.5, y1=-0.5, fillcolor='rgba(239,68,68,0.08)', line_width=0)
+    fig.add_hrect(y0=1.0, y1=10.0, fillcolor='rgba(16,185,129,0.08)', line_width=0)
+    fig.add_hrect(y0=-10.0, y1=-0.5, fillcolor='rgba(239,68,68,0.08)', line_width=0)
     
     fig.update_layout(
         template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='#1A1A1A', height=400,
         margin=dict(l=10, r=60, t=30, b=50), xaxis=dict(showgrid=True, gridcolor='rgba(42,42,42,0.5)'),
-        yaxis=dict(showgrid=True, gridcolor='rgba(42,42,42,0.5)', title='Regime Score', range=[-2, 2]),
+        yaxis=dict(showgrid=True, gridcolor='rgba(42,42,42,0.5)', title='Regime Score', autorange=True),
         font=dict(family='Inter', color='#EAEAEA'), hovermode='x unified', showlegend=False
     )
     return fig
