@@ -4,7 +4,7 @@ AVASTHA - Market Regime Detection System
 Institutional-grade market regime detection using multi-factor analysis
 across momentum, trend, breadth, volatility, and statistical extremes.
 
-Version: 2.0.1 (Patch: Fix Plotly Colorbar & Streamlit Width)
+Version: 2.0.2 (Patch: Dynamic Scaling for Regime Chart)
 Author: Hemrek Capital
 """
 
@@ -33,7 +33,7 @@ from data_engine import (
 # CONFIGURATION
 # ══════════════════════════════════════════════════════════════════════════════
 
-VERSION = "v2.0.1"
+VERSION = "v2.0.2"
 APP_TITLE = "AVASTHA"
 APP_SUBTITLE = "Market Regime Detection System"
 
@@ -452,6 +452,14 @@ def create_time_series_chart(ts_results: list) -> go.Figure:
     regimes = [r['regime'] for r in ts_results]
     colors = [get_regime_color(r) for r in regimes]
     
+    # Calculate dynamic range based on data extremes
+    # Default to -2.5 to 2.5 for context, but expand if scores exceed this
+    data_min = min(scores) if scores else 0
+    data_max = max(scores) if scores else 0
+    
+    y_min = min(-2.5, data_min - 0.5)
+    y_max = max(2.5, data_max + 0.5)
+    
     fig = go.Figure()
     
     # Fill areas
@@ -468,13 +476,15 @@ def create_time_series_chart(ts_results: list) -> go.Figure:
     fig.add_hline(y=1.0, line=dict(color='rgba(16,185,129,0.5)', width=1, dash='dash'), annotation_text="Bull", annotation_position="right")
     fig.add_hline(y=-0.5, line=dict(color='rgba(239,68,68,0.5)', width=1, dash='dash'), annotation_text="Bear", annotation_position="right")
     fig.add_hline(y=0, line=dict(color='rgba(255,255,255,0.3)', width=1))
-    fig.add_hrect(y0=1.0, y1=10.0, fillcolor='rgba(16,185,129,0.08)', line_width=0)
-    fig.add_hrect(y0=-10.0, y1=-0.5, fillcolor='rgba(239,68,68,0.08)', line_width=0)
+    
+    # Background Rectangles - Dynamic height based on data extremes
+    fig.add_hrect(y0=1.0, y1=y_max, fillcolor='rgba(16,185,129,0.08)', line_width=0)
+    fig.add_hrect(y0=y_min, y1=-0.5, fillcolor='rgba(239,68,68,0.08)', line_width=0)
     
     fig.update_layout(
         template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='#1A1A1A', height=400,
         margin=dict(l=10, r=60, t=30, b=50), xaxis=dict(showgrid=True, gridcolor='rgba(42,42,42,0.5)'),
-        yaxis=dict(showgrid=True, gridcolor='rgba(42,42,42,0.5)', title='Regime Score', autorange=True),
+        yaxis=dict(showgrid=True, gridcolor='rgba(42,42,42,0.5)', title='Regime Score', range=[y_min, y_max]),
         font=dict(family='Inter', color='#EAEAEA'), hovermode='x unified', showlegend=False
     )
     return fig
