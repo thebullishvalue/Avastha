@@ -470,33 +470,57 @@ def create_time_series_chart(ts_results: list) -> go.Figure:
 
 
 def create_factor_evolution_chart(ts_results: list) -> go.Figure:
-    """Create factor score evolution over time"""
+    """Create simplified factor score evolution - stacked area showing bull vs bear factors"""
     if not ts_results or 'factors' not in ts_results[0]:
         return go.Figure()
     
     dates = [r['date'] for r in ts_results]
-    factor_data = {}
-    for factor_name in ts_results[0].get('factors', {}).keys():
-        factor_data[factor_name] = [r.get('factors', {}).get(factor_name, 0) for r in ts_results]
+    
+    # Calculate aggregate bullish and bearish factor contributions
+    bull_scores = []
+    bear_scores = []
+    
+    for r in ts_results:
+        factors = r.get('factors', {})
+        bull_sum = sum(max(0, v) for v in factors.values())
+        bear_sum = sum(min(0, v) for v in factors.values())
+        bull_scores.append(bull_sum)
+        bear_scores.append(abs(bear_sum))
     
     fig = go.Figure()
-    colors = ['#FFC300', '#10b981', '#ef4444', '#06b6d4', '#f59e0b', '#888888', '#a855f7']
     
-    for i, (name, values) in enumerate(factor_data.items()):
-        fig.add_trace(go.Scatter(
-            x=dates, y=values, mode='lines', name=name.upper(),
-            line=dict(color=colors[i % len(colors)], width=2),
-            hovertemplate=f"<b>{name.upper()}</b><br>%{{x|%Y-%m-%d}}<br>Score: %{{y:.2f}}<extra></extra>"
-        ))
+    # Bullish factors area
+    fig.add_trace(go.Scatter(
+        x=dates, y=bull_scores, mode='lines', name='Bullish Factors',
+        fill='tozeroy', fillcolor='rgba(16,185,129,0.3)',
+        line=dict(color='#10b981', width=2),
+        hovertemplate="<b>%{x|%Y-%m-%d}</b><br>Bullish Strength: %{y:.2f}<extra></extra>"
+    ))
     
-    fig.add_hline(y=0, line=dict(color='rgba(255,255,255,0.3)', width=1))
+    # Bearish factors area (shown as negative)
+    fig.add_trace(go.Scatter(
+        x=dates, y=[-b for b in bear_scores], mode='lines', name='Bearish Factors',
+        fill='tozeroy', fillcolor='rgba(239,68,68,0.3)',
+        line=dict(color='#ef4444', width=2),
+        hovertemplate="<b>%{x|%Y-%m-%d}</b><br>Bearish Strength: %{y:.2f}<extra></extra>"
+    ))
+    
+    # Net score line
+    net_scores = [b - r for b, r in zip(bull_scores, bear_scores)]
+    fig.add_trace(go.Scatter(
+        x=dates, y=net_scores, mode='lines', name='Net Factor Score',
+        line=dict(color='#FFC300', width=3),
+        hovertemplate="<b>%{x|%Y-%m-%d}</b><br>Net Score: %{y:.2f}<extra></extra>"
+    ))
+    
+    fig.add_hline(y=0, line=dict(color='rgba(255,255,255,0.5)', width=1, dash='dash'))
     
     fig.update_layout(
         template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='#1A1A1A', height=350,
         margin=dict(l=10, r=10, t=30, b=50), xaxis=dict(showgrid=True, gridcolor='rgba(42,42,42,0.5)'),
-        yaxis=dict(showgrid=True, gridcolor='rgba(42,42,42,0.5)', title='Factor Score', range=[-2.5, 2.5]),
+        yaxis=dict(showgrid=True, gridcolor='rgba(42,42,42,0.5)', title='Factor Strength', zeroline=True, zerolinecolor='#888'),
         font=dict(family='Inter', color='#EAEAEA'), hovermode='x unified',
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, bgcolor='rgba(0,0,0,0)')
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5, bgcolor='rgba(0,0,0,0)')
     )
     return fig
 
@@ -524,17 +548,24 @@ def create_regime_distribution_chart(ts_results: list) -> go.Figure:
 
 
 def create_regime_transition_matrix(ts_results: list) -> go.Figure:
-    """Create regime transition probability matrix"""
+    """Create regime transition probability matrix with readable dark-mode colors"""
     if len(ts_results) < 2:
         return go.Figure()
     
     transitions = {}
     regimes = list(set(r['regime'] for r in ts_results))
+    # Sort regimes from bearish to bullish for better readability
+    regime_order = ['CRISIS', 'BEAR', 'WEAK_BEAR', 'CHOP', 'WEAK_BULL', 'BULL', 'STRONG_BULL']
+    regimes = [r for r in regime_order if r in regimes]
+    
     for from_regime in regimes:
         transitions[from_regime] = {to_regime: 0 for to_regime in regimes}
     
     for i in range(len(ts_results) - 1):
-        transitions[ts_results[i]['regime']][ts_results[i + 1]['regime']] += 1
+        from_r = ts_results[i]['regime']
+        to_r = ts_results[i + 1]['regime']
+        if from_r in transitions and to_r in transitions[from_r]:
+            transitions[from_r][to_r] += 1
     
     matrix = []
     for from_regime in regimes:
@@ -545,16 +576,36 @@ def create_regime_transition_matrix(ts_results: list) -> go.Figure:
             row.append(prob)
         matrix.append(row)
     
+    # Custom colorscale: dark purple (low) -> gold (high) for dark mode readability
+    colorscale = [
+        [0.0, '#1a1a2e'],
+        [0.2, '#16213e'],
+        [0.4, '#0f3460'],
+        [0.6, '#e94560'],
+        [0.8, '#f59e0b'],
+        [1.0, '#FFC300']
+    ]
+    
     fig = go.Figure(data=go.Heatmap(
-        z=matrix, x=regimes, y=regimes, colorscale='YlOrRd',
-        text=[[f"{v:.0%}" for v in row] for row in matrix], texttemplate="%{text}", textfont=dict(size=11, color='white'),
-        hovertemplate="From: %{y}<br>To: %{x}<br>Probability: %{z:.1%}<extra></extra>"
+        z=matrix, x=regimes, y=regimes, colorscale=colorscale,
+        text=[[f"{v:.0%}" for v in row] for row in matrix], texttemplate="%{text}", 
+        textfont=dict(size=12, color='white', family='Inter'),
+        hovertemplate="<b>From:</b> %{y}<br><b>To:</b> %{x}<br><b>Probability:</b> %{z:.1%}<extra></extra>",
+        colorbar=dict(
+            title="Probability",
+            titleside="right",
+            tickformat=".0%",
+            tickfont=dict(color='#888888'),
+            titlefont=dict(color='#888888')
+        )
     ))
     
     fig.update_layout(
-        template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='#1A1A1A', height=350,
-        margin=dict(l=100, r=20, t=40, b=80), xaxis=dict(title="To Regime", tickangle=45),
-        yaxis=dict(title="From Regime"), font=dict(family='Inter', color='#EAEAEA')
+        template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='#1A1A1A', height=380,
+        margin=dict(l=100, r=80, t=40, b=100), 
+        xaxis=dict(title="To Regime", tickangle=45, tickfont=dict(size=10), side='bottom'),
+        yaxis=dict(title="From Regime", tickfont=dict(size=10), autorange='reversed'),
+        font=dict(family='Inter', color='#EAEAEA')
     )
     return fig
 
@@ -768,8 +819,31 @@ def display_time_series_results(ts_results: list):
         st.plotly_chart(create_momentum_indicator(ts_results), width="stretch")
     
     with tab2:
-        st.markdown("##### Factor Score Evolution")
+        st.markdown("##### Factor Strength Over Time")
+        st.markdown('<p style="color: #888888; font-size: 0.85rem;">Green area = Bullish factor strength | Red area = Bearish factor strength | Gold line = Net balance</p>', unsafe_allow_html=True)
         st.plotly_chart(create_factor_evolution_chart(ts_results), width="stretch")
+        
+        # Add factor summary metrics
+        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+        st.markdown("##### Factor Contribution Summary")
+        
+        # Calculate average factor scores
+        factor_avgs = {}
+        for factor_name in ts_results[0].get('factors', {}).keys():
+            values = [r.get('factors', {}).get(factor_name, 0) for r in ts_results]
+            factor_avgs[factor_name] = np.mean(values)
+        
+        cols = st.columns(len(factor_avgs))
+        for i, (name, avg) in enumerate(factor_avgs.items()):
+            with cols[i]:
+                color_class = "success" if avg >= 0.3 else "danger" if avg <= -0.3 else "warning"
+                arrow = "▲" if avg > 0 else "▼" if avg < 0 else "→"
+                st.markdown(f"""
+                <div class='metric-card {color_class}' style='padding: 0.75rem; text-align: center;'>
+                    <h4 style='font-size: 0.65rem;'>{name.upper()}</h4>
+                    <h2 style='font-size: 1.25rem;'>{arrow} {avg:+.2f}</h2>
+                </div>
+                """, unsafe_allow_html=True)
     
     with tab3:
         col_d1, col_d2 = st.columns(2)

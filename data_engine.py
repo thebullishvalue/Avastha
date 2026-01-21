@@ -36,7 +36,8 @@ ETF_UNIVERSE = [
     "MOREALTY.NS", "PSUBNKIETF.NS", "MASPTOP50.NS", "FMCGIETF.NS",
     "ITIETF.NS", "EVINDIA.NS", "MNC.NS", "FINIETF.NS",
     "AUTOIETF.NS", "PVTBANIETF.NS", "MONIFTY500.NS", "ECAPINSURE.NS",
-    "MIDCAPIETF.NS", "MOSMALL250.NS", "OILIETF.NS", "METALIETF.NS"
+    "MIDCAPIETF.NS", "MOSMALL250.NS", "OILIETF.NS", "METALIETF.NS",
+    "CHEMICAL.NS", "GROWWPOWER.NS"
 ]
 
 ETF_NAMES = {
@@ -53,7 +54,8 @@ ETF_NAMES = {
     "AUTOIETF.NS": "Auto", "PVTBANIETF.NS": "Pvt Bank",
     "MONIFTY500.NS": "NIFTY 500", "ECAPINSURE.NS": "Insurance",
     "MIDCAPIETF.NS": "Midcap", "MOSMALL250.NS": "Smallcap",
-    "OILIETF.NS": "Oil & Gas", "METALIETF.NS": "Metal"
+    "OILIETF.NS": "Oil & Gas", "METALIETF.NS": "Metal",
+    "CHEMICAL.NS": "Chemical", "GROWWPOWER.NS": "Power"
 }
 
 # Index URL mapping for constituent fetching
