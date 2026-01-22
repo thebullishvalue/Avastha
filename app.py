@@ -990,21 +990,25 @@ def display_time_series_results(ts_results: list):
         
         # Calculate average factor scores
         factor_avgs = {}
-        for factor_name in ts_results[0].get('factors', {}).keys():
-            values = [r.get('factors', {}).get(factor_name, 0) for r in ts_results]
-            factor_avgs[factor_name] = np.mean(values)
+        if ts_results and ts_results[0].get('factors'):
+            for factor_name in ts_results[0].get('factors', {}).keys():
+                values = [r.get('factors', {}).get(factor_name, 0) for r in ts_results]
+                factor_avgs[factor_name] = np.mean(values)
         
-        cols = st.columns(len(factor_avgs))
-        for i, (name, avg) in enumerate(factor_avgs.items()):
-            with cols[i]:
-                color_class = "success" if avg >= 0.3 else "danger" if avg <= -0.3 else "warning"
-                arrow = "▲" if avg > 0 else "▼" if avg < 0 else "→"
-                st.markdown(f"""
-                <div class='metric-card {color_class}' style='padding: 0.75rem; text-align: center;'>
-                    <h4 style='font-size: 0.65rem;'>{name.upper()}</h4>
-                    <h2 style='font-size: 1.25rem;'>{arrow} {avg:+.2f}</h2>
-                </div>
-                """, unsafe_allow_html=True)
+        if factor_avgs:
+            cols = st.columns(min(len(factor_avgs), 6))  # Max 6 columns
+            for i, (name, avg) in enumerate(factor_avgs.items()):
+                with cols[i % len(cols)]:
+                    color_class = "success" if avg >= 0.3 else "danger" if avg <= -0.3 else "warning"
+                    arrow = "▲" if avg > 0 else "▼" if avg < 0 else "→"
+                    st.markdown(f"""
+                    <div class='metric-card {color_class}' style='padding: 0.75rem; text-align: center;'>
+                        <h4 style='font-size: 0.65rem;'>{name.upper()}</h4>
+                        <h2 style='font-size: 1.25rem;'>{arrow} {avg:+.2f}</h2>
+                    </div>
+                    """, unsafe_allow_html=True)
+        else:
+            st.info("Factor data not available for summary.")
     
     with tab3:
         col_d1, col_d2 = st.columns(2)
