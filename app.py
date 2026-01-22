@@ -618,8 +618,12 @@ def create_regime_transition_matrix(ts_results: list) -> go.Figure:
     transitions = {}
     regimes = list(set(r['regime'] for r in ts_results))
     # Sort regimes from bearish to bullish for better readability
-    regime_order = ['CRISIS', 'BEAR', 'WEAK_BEAR', 'CHOP', 'WEAK_BULL', 'BULL', 'STRONG_BULL']
+    regime_order = ['CRISIS', 'BEAR', 'WEAK_BEAR', 'NEUTRAL', 'CHOP', 'WEAK_BULL', 'BULL', 'STRONG_BULL', 'TRANSITION']
     regimes = [r for r in regime_order if r in regimes]
+    
+    # Handle case with no valid regimes
+    if not regimes:
+        return go.Figure()
     
     for from_regime in regimes:
         transitions[from_regime] = {to_regime: 0 for to_regime in regimes}
@@ -655,11 +659,9 @@ def create_regime_transition_matrix(ts_results: list) -> go.Figure:
         textfont=dict(size=12, color='white', family='Inter'),
         hovertemplate="<b>From:</b> %{y}<br><b>To:</b> %{x}<br><b>Probability:</b> %{z:.1%}<extra></extra>",
         colorbar=dict(
-            title="Probability",
-            titleside="right",
+            title=dict(text="Probability", side="right", font=dict(color='#888888')),
             tickformat=".0%",
-            tickfont=dict(color='#888888'),
-            titlefont=dict(color='#888888')
+            tickfont=dict(color='#888888')
         )
     ))
     
