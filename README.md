@@ -1,165 +1,247 @@
-# ◈ AVASTHA - Market Regime Detection System
+# ◈ AVASTHA - Adaptive Market Regime Detection System
 
-**Version:** 1.0.0  
+**Version:** 2.0.0  
 **Author:** Hemrek Capital
 
 ---
 
 ## Overview
 
-AVASTHA (अवस्था - Sanskrit for "state/condition") is an institutional-grade market regime detection system that uses multi-factor analysis to classify current market conditions. It analyzes momentum, trend, breadth, volatility, and statistical extremes across your chosen universe to determine whether the market is in a bullish, bearish, or consolidation state.
+AVASTHA (अवस्था - Sanskrit for "state/condition") is an **adaptive** market regime detection system that uses advanced quantitative methods to classify current market conditions. Unlike traditional systems that rely on fixed thresholds, AVASTHA uses:
 
-## Features
+1. **Rolling Percentile Normalization** - All indicators scored relative to their own history
+2. **Hidden Markov Models (HMM)** - Learn regime patterns from data
+3. **Kalman Filtering** - Adaptive score smoothing
+4. **GARCH-inspired Volatility Adjustment** - Sensitivity scales with market volatility
+5. **CUSUM Change Point Detection** - Detect structural breaks
+6. **Bayesian Confidence Scoring** - Probabilistic regime assessment
 
-### 🎯 Multi-Factor Analysis
-- **7 Analysis Factors** with weighted scoring
-- Momentum (30%), Trend (25%), Breadth (15%), Velocity (15%), Extremes (10%), Volatility (5%)
+---
 
-### 📊 7 Regime Classifications
-| Regime | Score Range | Suggested Mix |
-|--------|-------------|---------------|
-| STRONG_BULL | ≥ 1.5 | 🐂 Bull Market Mix |
-| BULL | ≥ 1.0 | 🐂 Bull Market Mix |
-| WEAK_BULL | ≥ 0.5 | 📊 Chop/Consolidation Mix |
-| CHOP | ≥ 0.1 | 📊 Chop/Consolidation Mix |
-| WEAK_BEAR | ≥ -0.1 | 📊 Chop/Consolidation Mix |
-| BEAR | ≥ -0.5 | 🐻 Bear Market Mix |
-| CRISIS | < -0.5 | 🐻 Bear Market Mix |
+## Why Adaptive?
 
-### 🌐 Multiple Universes
-- **ETF Universe**: 28 curated sectoral and thematic ETFs
-- **F&O Stocks**: ~200+ Futures & Options eligible stocks (requires nsepython)
-- **Index Constituents**: 16 NSE indices including NIFTY 50, 100, 200, 500, sectoral indices
+**The Problem with Fixed Thresholds:**
+```
+Traditional: if RSI > 70 then "overbought"
+```
+This fails because:
+- RSI > 70 in a strong bull market is normal
+- RSI > 70 in a bear market rally is extreme
+- Market microstructure changes over time
 
-### 📈 Analysis Modes
-- **Single Day**: Analyze regime for a specific date
-- **Time Series**: Track regime evolution over a date range
+**AVASTHA's Solution:**
+```
+Adaptive: percentile_rank(RSI, rolling_history)
+```
+Every indicator is scored relative to its own recent history, making the system automatically sensitive to regime changes.
+
+---
+
+## Mathematical Framework
+
+### 1. Percentile Normalization (NO Fixed Thresholds)
+
+Instead of hardcoded thresholds, we use:
+```
+percentile_rank = (value - rolling_min) / (rolling_max - rolling_min)
+adaptive_score = 2 * percentile_rank - 1  # Maps to [-1, +1]
+```
+
+### 2. Hidden Markov Model (HMM)
+
+States: Bull (0), Neutral (1), Bear (2)
+
+**Transition Matrix** (learned from data):
+```
+        Bull    Neutral  Bear
+Bull    0.85    0.10     0.05
+Neutral 0.10    0.80     0.10  
+Bear    0.05    0.10     0.85
+```
+
+**Forward Algorithm:**
+```
+α_t(j) = P(O_1,...,O_t, S_t=j)
+P(State | Observations) ∝ P(Observation | State) × P(State | Previous)
+```
+
+### 3. Kalman Filter
+
+**State Equation:** x_t = x_{t-1} + w_t (random walk)  
+**Observation:** z_t = x_t + v_t
+
+**Kalman Gain:** K = P_{t|t-1} / (P_{t|t-1} + R)
+
+The filter optimally combines prediction and measurement based on their uncertainties.
+
+### 4. GARCH Volatility Regime
+
+```
+σ²_t = ω + α × ε²_{t-1} + β × σ²_{t-1}
+```
+
+Volatility multiplier adjusts score sensitivity:
+- **LOW volatility:** multiplier = 1.3 (more sensitive)
+- **NORMAL:** multiplier = 1.0
+- **HIGH:** multiplier = 0.8 (less sensitive)
+- **EXTREME:** multiplier = 0.6
+
+### 5. CUSUM Change Point Detection
+
+```
+S⁺_t = max(0, S⁺_{t-1} + (x_t - μ - k))
+S⁻_t = max(0, S⁻_{t-1} - (x_t - μ + k))
+```
+
+When S⁺_t > h or S⁻_t > h, a structural break is detected.
+
+### 6. Bayesian Confidence
+
+```
+P(Regime | Data) ∝ P(Data | Regime) × P(Regime)
+```
+
+Confidence combines:
+- HMM state probability dominance
+- Factor agreement (do all factors point same direction?)
+- Data sufficiency
+- Average factor confidence
+
+---
+
+## Regime Types
+
+| Regime | Description | Suggested Action |
+|--------|-------------|------------------|
+| STRONG_BULL 🚀 | Exceptional bullish conditions | Aggressive Bull Mix |
+| BULL 🐂 | Clear bullish trend | Bull Market Mix |
+| WEAK_BULL 📈 | Mildly bullish | Cautious Bull Mix |
+| NEUTRAL 📊 | No clear direction | Balanced Mix |
+| WEAK_BEAR 📉 | Mildly bearish | Cautious Bear Mix |
+| BEAR 🐻 | Clear bearish trend | Bear Market Mix |
+| CRISIS 🔥 | Extreme bearish/panic | Defensive Mix |
+| TRANSITION ⚡ | Regime change in progress | Reduce Exposure |
+
+---
+
+## Factors Analyzed
+
+All factors use **rolling percentile normalization**:
+
+| Factor | Weight | What it Measures |
+|--------|--------|------------------|
+| Momentum | 25% | RSI trends and levels (percentile-based) |
+| Trend | 25% | MA alignment, price vs 200 DMA |
+| Breadth | 20% | % of universe bullish/bearish |
+| Velocity | 15% | Rate of change in momentum |
+| Extremes | 10% | Statistical outliers (Z-score based) |
+| Volatility | 5% | Bollinger Band Width regime |
+
+---
 
 ## Installation
 
 ```bash
-# Clone or download the system
-cd avastha
-
-# Install dependencies
 pip install -r requirements.txt
-
-# Optional: For F&O Stock Universe
-pip install nsepython
-
-# Run the application
 streamlit run app.py
 ```
 
+### Requirements
+- streamlit>=1.28.0
+- pandas>=2.0.0
+- numpy>=1.24.0
+- yfinance>=0.2.31
+- plotly>=5.18.0
+- requests>=2.31.0
+
+---
+
 ## Usage
 
-1. **Select Universe**: Choose ETF Universe, F&O Stocks, or Index Constituents
-2. **Select Analysis Type**: Single Day or Time Series
-3. **Set Date(s)**: Choose analysis date or date range
-4. **Run Analysis**: Click "RUN ANALYSIS" to execute
+1. **Select Universe:**
+   - ETF Universe (30 curated sectoral ETFs)
+   - F&O Stocks (~200+ liquid derivatives)
+   - Index Constituents (16 NSE indices)
 
-## File Structure
+2. **Select Analysis Type:**
+   - Single Day: Point-in-time regime detection
+   - Time Series: Track regime evolution over date range
+
+3. **Run Analysis**
+
+4. **Interpret Results:**
+   - **HMM Probabilities:** P(Bull), P(Neutral), P(Bear)
+   - **Composite Score:** Kalman-filtered adaptive score
+   - **Volatility Regime:** Current vol environment
+   - **Regime Persistence:** How long current state has lasted
+   - **Change Point Alert:** Structural break detection
+
+---
+
+## Key Advantages
+
+### vs Fixed Threshold Systems:
+✅ Automatically adapts to changing market conditions  
+✅ No manual threshold tuning required  
+✅ Captures microstructure changes  
+✅ Works across different market regimes  
+
+### vs Simple Moving Average Crossovers:
+✅ Probabilistic output (confidence levels)  
+✅ Multi-factor analysis  
+✅ Regime persistence tracking  
+✅ Change point detection  
+
+### vs Traditional Technical Analysis:
+✅ Mathematically rigorous (HMM, Kalman, GARCH)  
+✅ Data-driven, not rule-based  
+✅ Bayesian uncertainty quantification  
+✅ Structural break awareness  
+
+---
+
+## Files
 
 ```
 avastha/
-├── app.py              # Main Streamlit application (Pragyam Design System)
-├── regime_detector.py  # Core regime detection engine
-├── data_engine.py      # Data fetching with universe support
-├── requirements.txt    # Python dependencies
-└── README.md           # Documentation
+├── app.py                      # Streamlit UI
+├── adaptive_regime_detector.py # Core adaptive detection engine
+├── regime_detector.py          # Legacy detector (for reference)
+├── data_engine.py              # Multi-universe data fetching
+├── requirements.txt            # Dependencies
+└── README.md                   # This file
 ```
 
-## Analysis Factors
+---
 
-### 1. Momentum (30%)
-- RSI trend and current value analysis
-- Liquidity Oscillator trend analysis
-- Classifications: STRONG_BULLISH → STRONG_BEARISH
+## Configuration
 
-### 2. Trend (25%)
-- Price position relative to 200 DMA
-- Moving average alignment (90 DMA vs 200 DMA)
-- Trend consistency measurement
-- Classifications: STRONG_UPTREND → STRONG_DOWNTREND
+### Lookback Period
+Default: 60 periods for percentile calculation
 
-### 3. Breadth (15%)
-- RSI bullish percentage (> 50)
-- Oscillator positive percentage
-- Divergence detection (narrow vs broad participation)
-- Classifications: STRONG_BROAD → CAPITULATION
-
-### 4. Velocity (15%)
-- Momentum acceleration/deceleration
-- Rate of change analysis
-- Classifications: ACCELERATING_UP → ACCELERATING_DOWN
-
-### 5. Extremes (10%)
-- Z-score extreme analysis
-- Statistical overbought/oversold conditions
-- Classifications: DEEPLY_OVERSOLD → DEEPLY_OVERBOUGHT
-
-### 6. Volatility (5%)
-- Bollinger Band Width analysis
-- Volatility trend direction
-- Classifications: SQUEEZE, NORMAL, ELEVATED, PANIC
-
-## API Reference
-
-### MarketRegimeDetector
-
+### Factor Weights
+Modify `FACTOR_WEIGHTS` in `adaptive_regime_detector.py`:
 ```python
-from regime_detector import MarketRegimeDetector, RegimeType
-
-detector = MarketRegimeDetector(min_periods=10)
-result = detector.detect(historical_data)
-
-# Result attributes:
-result.regime          # RegimeType enum
-result.regime_name     # String name (e.g., "BULL")
-result.suggested_mix   # Portfolio mix suggestion
-result.confidence      # 0-1 confidence score
-result.composite_score # -2 to +2 composite factor score
-result.factors         # Dict of FactorAnalysis objects
-result.explanation     # Human-readable explanation
-result.warnings        # List of warning messages
+FACTOR_WEIGHTS = {
+    'momentum': 0.25,
+    'trend': 0.25,
+    'breadth': 0.20,
+    'velocity': 0.15,
+    'extremes': 0.10,
+    'volatility': 0.05
+}
 ```
 
-### MarketDataEngine
+### HMM Parameters
+Transition matrix adapts automatically from data, but initial values can be modified in `HMMState` class.
 
-```python
-from data_engine import MarketDataEngine
+### Volatility Parameters
+GARCH parameters in `VolatilityState`:
+- omega (ω): 0.0001
+- alpha (α): 0.1  
+- beta (β): 0.85
 
-engine = MarketDataEngine()
-engine.set_universe("Index Constituents", "NIFTY 500")
-data = engine.get_regime_data(analysis_date, lookback_days=30)
-```
-
-## Design System
-
-AVASTHA uses a consistent dark theme design system:
-
-- **Primary Color**: #FFC300 (Gold)
-- **Background**: #0F0F0F (Near Black)
-- **Card Background**: #1A1A1A
-- **Success**: #10b981 (Green)
-- **Danger**: #ef4444 (Red)
-- **Warning**: #f59e0b (Amber)
-- **Font**: Inter
-
-## Warnings System
-
-AVASTHA generates warnings for:
-- **Breadth Divergence**: Narrow market leadership
-- **Panic Volatility**: Elevated market turbulence
-- **Statistical Extremes**: Overbought/Oversold conditions
-
-## Limitations
-
-- Requires minimum 10 historical periods for analysis
-- Data dependent on yfinance availability
-- F&O universe requires nsepython package
-- Best suited for liquid ETF/stock universe
-- Not a trading recommendation system
+---
 
 ## License
 
