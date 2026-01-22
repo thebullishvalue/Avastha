@@ -204,7 +204,7 @@ class MathUtils:
         return 2 * pct - 1
     
     @staticmethod
-    def adaptive_z_score(value: float, history: np.ndarray, min_periods: int = 10) -> float:
+    def adaptive_z_score(value: float, history: np.ndarray, min_periods: int = 3) -> float:
         """
         Calculate z-score with adaptive mean and std.
         Uses exponentially weighted statistics for recency bias.
@@ -330,8 +330,8 @@ class AdaptiveKalmanFilter:
         self.state.error_covariance = (1 - kalman_gain) * predicted_covariance
         
         # Adaptive noise estimation from innovation sequence
-        if len(self.innovation_history) >= 20:
-            innovation_var = np.var(self.innovation_history[-20:])
+        if len(self.innovation_history) >= 5:  # Reduced from 20
+            innovation_var = np.var(self.innovation_history[-min(20, len(self.innovation_history)):])
             # Update measurement variance adaptively
             self.state.measurement_variance = 0.9 * self.state.measurement_variance + 0.1 * innovation_var
         
@@ -423,11 +423,11 @@ class AdaptiveHMM:
         self.state_history.append(most_likely)
         
         # Adapt emission parameters if we have enough history
-        if len(self.observation_history) >= 30:
+        if len(self.observation_history) >= 10:  # Reduced from 30
             self._adapt_emissions()
         
         # Adapt transition matrix based on observed transitions
-        if len(self.state_history) >= 20:
+        if len(self.state_history) >= 5:  # Reduced from 20
             self._adapt_transitions()
         
         return {
@@ -443,7 +443,7 @@ class AdaptiveHMM:
         
         for state in range(self.state.n_states):
             state_mask = np.array(recent_states[-len(recent_obs):]) == state
-            if state_mask.sum() >= 5:
+            if state_mask.sum() >= 2:  # Reduced from 5 to 2
                 state_obs = recent_obs[state_mask]
                 # Exponential smoothing for adaptation
                 new_mean = np.mean(state_obs)
@@ -466,7 +466,7 @@ class AdaptiveHMM:
         # Convert to probabilities with smoothing
         for i in range(3):
             row_sum = transition_counts[i].sum()
-            if row_sum >= 5:  # Only adapt if enough observations
+            if row_sum >= 2:  # Reduced from 5 to 2
                 new_probs = (transition_counts[i] + 1) / (row_sum + 3)  # Laplace smoothing
                 self.state.transition_matrix[i] = 0.8 * self.state.transition_matrix[i] + 0.2 * new_probs
     
@@ -540,8 +540,8 @@ class VolatilityRegimeDetector:
         self.state.current_variance = new_variance
         
         # Update long-term mean adaptively
-        if len(self.shock_history) >= 50:
-            realized_var = np.var(self.shock_history[-50:])
+        if len(self.shock_history) >= 10:  # Reduced from 50
+            realized_var = np.var(self.shock_history[-min(50, len(self.shock_history)):])
             self.state.long_term_mean = 0.95 * self.state.long_term_mean + 0.05 * realized_var
         
         return np.sqrt(new_variance)
@@ -608,8 +608,8 @@ class CUSUMDetector:
         self.value_history.append(value)
         
         # Update running statistics
-        if len(self.value_history) >= 10:
-            recent = self.value_history[-20:]
+        if len(self.value_history) >= 3:  # Reduced from 10
+            recent = self.value_history[-min(20, len(self.value_history)):]
             self.running_mean = np.mean(recent)
             self.running_std = max(np.std(recent), 0.1)
         
@@ -668,9 +668,9 @@ class AdaptiveRegimeDetector:
         'volatility': 0.05
     }
     
-    def __init__(self, lookback_period: int = 60, min_periods: int = 20):
+    def __init__(self, lookback_period: int = 60, min_periods: int = 5):
         self.lookback_period = lookback_period
-        self.min_periods = min_periods
+        self.min_periods = min_periods  # Reduced from 20 to 5
         
         # Initialize components
         self.kalman_filter = AdaptiveKalmanFilter()
@@ -742,52 +742,86 @@ class AdaptiveRegimeDetector:
         """Extract raw factor values from dataframe"""
         factors = {}
         
+        # Debug: print available columns (remove in production)
+        # print(f"Available columns: {df.columns.tolist()}")
+        
         # Momentum: RSI-based
         if 'rsi latest' in df.columns:
-            rsi_mean = df['rsi latest'].mean()
-            rsi_above_50 = (df['rsi latest'] > 50).mean()
-            factors['momentum'] = (rsi_mean - 50) / 25 + (rsi_above_50 - 0.5)
+            rsi_data = df['rsi latest'].dropna()
+            if len(rsi_data) > 0:
+                rsi_mean = rsi_data.mean()
+                rsi_above_50 = (rsi_data > 50).mean()
+                factors['momentum'] = (rsi_mean - 50) / 25 + (rsi_above_50 - 0.5)
+            else:
+                factors['momentum'] = 0.0
         else:
             factors['momentum'] = 0.0
         
         # Trend: MA alignment and price position
         trend_score = 0.0
         if 'ma200 latest' in df.columns and 'price' in df.columns:
-            above_200 = (df['price'] > df['ma200 latest']).mean()
-            trend_score += (above_200 - 0.5) * 2
+            valid_mask = df['ma200 latest'].notna() & df['price'].notna()
+            if valid_mask.sum() > 0:
+                above_200 = (df.loc[valid_mask, 'price'] > df.loc[valid_mask, 'ma200 latest']).mean()
+                trend_score += (above_200 - 0.5) * 2
         if 'ma90 latest' in df.columns and 'ma200 latest' in df.columns:
-            ma_aligned = (df['ma90 latest'] > df['ma200 latest']).mean()
-            trend_score += (ma_aligned - 0.5)
+            valid_mask = df['ma90 latest'].notna() & df['ma200 latest'].notna()
+            if valid_mask.sum() > 0:
+                ma_aligned = (df.loc[valid_mask, 'ma90 latest'] > df.loc[valid_mask, 'ma200 latest']).mean()
+                trend_score += (ma_aligned - 0.5)
         factors['trend'] = trend_score
         
         # Breadth: Oscillator-based
         if 'osc latest' in df.columns:
-            osc_positive = (df['osc latest'] > 0).mean()
-            osc_mean = df['osc latest'].mean() / 50
-            factors['breadth'] = osc_positive - 0.5 + osc_mean
+            osc_data = df['osc latest'].dropna()
+            if len(osc_data) > 0:
+                osc_positive = (osc_data > 0).mean()
+                osc_mean = osc_data.mean() / 50
+                factors['breadth'] = osc_positive - 0.5 + osc_mean
+            else:
+                factors['breadth'] = 0.0
         else:
             factors['breadth'] = 0.0
         
-        # Velocity: Rate of change
-        if 'rsi latest' in df.columns and 'rsi 5d ago' in df.columns:
-            rsi_velocity = (df['rsi latest'] - df['rsi 5d ago']).mean() / 10
-            factors['velocity'] = np.clip(rsi_velocity, -1, 1)
+        # Velocity: Use RSI weekly vs latest or % change
+        if 'rsi latest' in df.columns and 'rsi weekly' in df.columns:
+            valid_mask = df['rsi latest'].notna() & df['rsi weekly'].notna()
+            if valid_mask.sum() > 0:
+                rsi_velocity = (df.loc[valid_mask, 'rsi latest'] - df.loc[valid_mask, 'rsi weekly']).mean() / 10
+                factors['velocity'] = np.clip(rsi_velocity, -1, 1)
+            else:
+                factors['velocity'] = 0.0
+        elif '% change' in df.columns:
+            pct_data = df['% change'].dropna()
+            if len(pct_data) > 0:
+                factors['velocity'] = np.clip(pct_data.mean() * 20, -1, 1)
+            else:
+                factors['velocity'] = 0.0
         else:
             factors['velocity'] = 0.0
         
-        # Extremes: Z-score based
-        if 'z-score latest' in df.columns:
-            extreme_oversold = (df['z-score latest'] < -2).mean()
-            extreme_overbought = (df['z-score latest'] > 2).mean()
-            factors['extremes'] = (extreme_oversold - extreme_overbought) * 2
+        # Extremes: Z-score based (column is 'zscore latest' not 'z-score latest')
+        if 'zscore latest' in df.columns:
+            zscore_data = df['zscore latest'].dropna()
+            if len(zscore_data) > 0:
+                extreme_oversold = (zscore_data < -2).mean()
+                extreme_overbought = (zscore_data > 2).mean()
+                factors['extremes'] = (extreme_oversold - extreme_overbought) * 2
+            else:
+                factors['extremes'] = 0.0
         else:
             factors['extremes'] = 0.0
         
-        # Volatility: BBW-based
-        if 'bbw latest' in df.columns:
-            avg_bbw = df['bbw latest'].mean()
-            # Higher volatility = negative score (uncertainty)
-            factors['volatility'] = -np.clip((avg_bbw - 0.1) * 5, -1, 1)
+        # Volatility: Use dev20 (standard deviation) as proxy for BBW
+        if 'dev20 latest' in df.columns and 'price' in df.columns:
+            valid_mask = df['dev20 latest'].notna() & df['price'].notna() & (df['price'] > 0)
+            if valid_mask.sum() > 0:
+                # Normalize std dev by price to get BBW-like measure
+                bbw_proxy = (df.loc[valid_mask, 'dev20 latest'] / df.loc[valid_mask, 'price']).mean()
+                # Higher volatility = negative score (uncertainty)
+                factors['volatility'] = -np.clip((bbw_proxy - 0.02) * 25, -1, 1)
+            else:
+                factors['volatility'] = 0.0
         else:
             factors['volatility'] = 0.0
         
